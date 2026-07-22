@@ -12,4 +12,8 @@ LexiForge follows a linear, deterministic boundary:
 
 M2 adds a read-only dataset-engineering layer above curation. It computes profile-driven statistics, optimisation suggestions, release plans, structural comparisons, and deterministic balanced selection. A presentation layer renders the same data as JSON, Markdown, static HTML, and pure-XML SVG. Publication writes a backend-free directory suitable for GitHub Pages.
 
+M2.5 places a `DatasetRepository` boundary in front of all CLI data access. It resolves explicit option, environment, or bundled roots; validates the dataset manifest and layout; and then passes one root through profiles, curation, engineering, builds, and publication. Core loaders remain filesystem-format focused and do not know whether the repository is bundled or external.
+
+Despite its class name, this boundary represents a versioned dataset interface, not a Git checkout. It does not inspect repository names, remotes, branches, parent directories, or hosting providers. A directory, mounted CI artefact, extracted release, language-specific repository, or future integration is equivalent when it implements the documented interface.
+
 Language behavior is configuration-driven; adding a compatible profile does not change validator logic. M0 deliberately has no persistence service, web framework, accounts, external API, plugin architecture, or semantic classifier.

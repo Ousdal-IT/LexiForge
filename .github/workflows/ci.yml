@@ -28,6 +28,8 @@ jobs:
       - run: ./scripts/check-repository-hygiene.sh
       - run: git diff --check
       - run: uv run lexiforge validate --all
+      - run: uv run lexiforge doctor
+      - run: uv run lexiforge validate-repository
       - run: uv run lexiforge curate report --all --format json --output-dir build/reports
       - run: uv run lexiforge optimise --all
       - run: uv run lexiforge compare nb nn
@@ -44,3 +46,9 @@ jobs:
             uv run lexiforge build --language "$language" --size 16 --allow-development-size --balanced --output-dir "build/second/$language"
             diff -ru "build/first/$language" "build/second/$language"
           done
+      - name: External repository parity
+        run: |
+          cp -a data build/external-data
+          uv run lexiforge validate --data-root build/external-data --all
+          uv run lexiforge build --data-root build/external-data --language nb --size 16 --allow-development-size --balanced --output-dir build/external-nb
+          diff -ru build/first/nb build/external-nb

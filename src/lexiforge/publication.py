@@ -2,6 +2,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from .constants import DEFAULT_DATA_ROOT
 from .dataset import dataset_statistics, release_plan
 from .profiles import load_profiles
 from .report import render_json
@@ -83,16 +84,16 @@ def render_dataset_markdown(statistics: dict[str, Any], plan: dict[str, Any]) ->
     return "\n".join(lines) + "\n"
 
 
-def publish_reports(output_dir: Path) -> list[Path]:
-    profiles = load_profiles()
+def publish_reports(output_dir: Path, data_root: Path = DEFAULT_DATA_ROOT) -> list[Path]:
+    profiles = load_profiles(data_root)
     output_dir.mkdir(parents=True, exist_ok=True)
     generated: list[Path] = []
     links = []
     for language in sorted(profiles):
         directory = output_dir / language
         directory.mkdir(parents=True, exist_ok=True)
-        statistics = dataset_statistics(language)
-        plan = release_plan(language)
+        statistics = dataset_statistics(language, data_root)
+        plan = release_plan(language, data_root=data_root)
         assets = {
             "word-length.svg": bar_chart_svg(
                 "Word length",

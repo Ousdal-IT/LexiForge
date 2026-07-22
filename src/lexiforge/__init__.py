@@ -11,12 +11,15 @@ from .models import (
     WordCandidate,
 )
 from .profiles import load_language_profile
+from .repository import DatasetManifest, DatasetRepository
 from .scoring import score_candidate
 from .similarity import find_similar_words
 from .validate import validate_candidates
 
 __all__ = [
     "LanguageProfile",
+    "DatasetManifest",
+    "DatasetRepository",
     "ProvenanceRecord",
     "ReviewCriteria",
     "ReviewRecord",

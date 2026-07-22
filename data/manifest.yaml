@@ -1,0 +1,9 @@
+dataset_version: 0.2.5-dev
+schema_version: 1
+supported_languages: [nb, nn, en]
+license: CC0-1.0
+maintainer: LexiForge contributors
+generated_date: null
+compatibility:
+  minimum_lexiforge: 0.1.0
+  maximum_lexiforge_exclusive: 1.0.0

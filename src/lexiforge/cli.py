@@ -4,7 +4,6 @@ from typing import Annotated
 
 import typer
 
-from .constants import DEFAULT_DATA_ROOT
 from .curation import build_curation_report, load_curation_data
 from .dataset import (
     balanced_selection,
@@ -21,6 +20,7 @@ from .models import CandidateRecord, LanguageProfile, ValidationResult
 from .normalize import normalize_word
 from .profiles import load_categories, load_policy, load_profiles
 from .report import render_analysis_human, render_analysis_markdown, render_json
+from .repository import DATASET_SCHEMA_VERSION, TOOL_VERSION, DatasetRepository
 from .validate import validate_candidates
 
 app = typer.Typer(
@@ -50,8 +50,20 @@ class ExportFormat(StrEnum):
     CSV = "csv"
 
 
-def _selected(language: str | None, all_languages: bool) -> list[str]:
-    profiles = load_profiles()
+def _repository(data_root: Path | None, *, require_layout: bool = True) -> DatasetRepository:
+    repository = DatasetRepository.resolve(data_root)
+    repository.load_manifest()
+    if require_layout:
+        errors = repository.validate_layout()
+        if errors:
+            raise ConfigurationError("invalid dataset repository: " + "; ".join(errors))
+    return repository
+
+
+def _selected(
+    language: str | None, all_languages: bool, repository: DatasetRepository
+) -> list[str]:
+    profiles = load_profiles(repository.root)
     if all_languages:
         return sorted(profiles)
     if language is None:
@@ -62,36 +74,79 @@ def _selected(language: str | None, all_languages: bool) -> list[str]:
 
 
 def _load_and_validate(
-    language: str,
+    language: str, repository: DatasetRepository
 ) -> tuple[LanguageProfile, list[CandidateRecord], ValidationResult]:
-    load_policy()
-    profiles = load_profiles()
+    load_policy(repository.root)
+    profiles = load_profiles(repository.root)
     profile = profiles[language]
-    records = load_language_candidates(language)
-    categories = {category.id for category in load_categories().categories}
-    blocklist = load_blocklists(DEFAULT_DATA_ROOT / "languages" / language / "blocklists")
+    records = load_language_candidates(language, repository.root)
+    categories = {category.id for category in load_categories(repository.root).categories}
+    blocklist = load_blocklists(repository.root / "languages" / language / "blocklists")
     result = validate_candidates(records, profile, categories, blocklist)
     return profile, records, result
 
 
 @app.command("languages")
-def languages_command() -> None:
+def languages_command(
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
     """List configured language profiles."""
-    load_policy()
-    load_categories()
-    for code, profile in sorted(load_profiles().items()):
+    repository = _repository(data_root)
+    load_policy(repository.root)
+    load_categories(repository.root)
+    for code, profile in sorted(load_profiles(repository.root).items()):
         typer.echo(f"{code}\t{profile.name}\t{profile.locale}\tvalid")
+
+
+@app.command("doctor")
+def doctor_command(
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Describe the tool and resolved dataset repository."""
+    repository = _repository(data_root, require_layout=False)
+    manifest = repository.load_manifest()
+    profiles = load_profiles(repository.root)
+    typer.echo(f"LexiForge version: {TOOL_VERSION}")
+    typer.echo(f"Dataset schema: {DATASET_SCHEMA_VERSION}")
+    typer.echo(f"Data root: {repository.root}")
+    typer.echo(f"Data source: {repository.source}")
+    typer.echo(f"Dataset version: {manifest.dataset_version}")
+    typer.echo(f"Access: {'writable' if repository.writable else 'read-only'}")
+    typer.echo("Languages:")
+    for code, profile in sorted(profiles.items()):
+        typer.echo(f"- {code}: profile version {profile.version}")
+
+
+@app.command("validate-repository")
+def validate_repository_command(
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Validate dataset manifest compatibility and repository layout."""
+    repository = _repository(data_root, require_layout=False)
+    errors = repository.validate_layout()
+    if errors:
+        for error in errors:
+            typer.echo(f"error: {error}")
+        raise typer.Exit(1)
+    manifest = repository.load_manifest()
+    typer.echo(
+        f"repository valid: schema {manifest.schema_version}, "
+        f"dataset {manifest.dataset_version}, languages "
+        f"{','.join(sorted(manifest.supported_languages))}"
+    )
 
 
 @app.command()
 def validate(
     language: Annotated[str | None, typer.Option("--language", "-l")] = None,
     all_languages: Annotated[bool, typer.Option("--all")] = False,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Validate candidate data structurally."""
     errors = 0
-    for code in _selected(language, all_languages):
-        _, _, result = _load_and_validate(code)
+    repository = _repository(data_root)
+    for code in _selected(language, all_languages, repository):
+        _, _, result = _load_and_validate(code, repository)
         for diagnostic in result.diagnostics:
             typer.echo(
                 f"{diagnostic.severity}: {diagnostic.file}:{diagnostic.row}: "
@@ -108,12 +163,14 @@ def analyse(
     language: Annotated[str | None, typer.Option("--language", "-l")] = None,
     all_languages: Annotated[bool, typer.Option("--all")] = False,
     output_format: Annotated[ReportFormat, typer.Option("--format")] = ReportFormat.HUMAN,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Report deterministic structural statistics."""
     reports = []
-    for code in _selected(language, all_languages):
-        _load_and_validate(code)
-        reports.append(dataset_statistics(code))
+    repository = _repository(data_root)
+    for code in _selected(language, all_languages, repository):
+        _load_and_validate(code, repository)
+        reports.append(dataset_statistics(code, repository.root))
     if output_format == ReportFormat.JSON:
         typer.echo(render_json(reports if all_languages else reports[0]), nl=False)
     else:
@@ -130,9 +187,14 @@ def optimise_command(
     language: Annotated[str | None, typer.Option("--language", "-l")] = None,
     all_languages: Annotated[bool, typer.Option("--all")] = False,
     output_format: Annotated[ReportFormat, typer.Option("--format")] = ReportFormat.HUMAN,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Suggest deterministic dataset improvements without modifying data."""
-    reports = [optimisation_report(code) for code in _selected(language, all_languages)]
+    repository = _repository(data_root)
+    reports = [
+        optimisation_report(code, repository.root)
+        for code in _selected(language, all_languages, repository)
+    ]
     if output_format == ReportFormat.JSON:
         typer.echo(render_json(reports if all_languages else reports[0]), nl=False)
         return
@@ -149,11 +211,13 @@ def compare_command(
     left: str,
     right: str,
     output_format: Annotated[ReportFormat, typer.Option("--format")] = ReportFormat.HUMAN,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Compare two language datasets structurally, without translation."""
-    _selected(left, False)
-    _selected(right, False)
-    comparison = compare_languages(left, right)
+    repository = _repository(data_root)
+    _selected(left, False, repository)
+    _selected(right, False, repository)
+    comparison = compare_languages(left, right, repository.root)
     if output_format == ReportFormat.JSON:
         typer.echo(render_json(comparison), nl=False)
         return
@@ -173,11 +237,16 @@ def release_plan_command(
     all_languages: Annotated[bool, typer.Option("--all")] = False,
     target_size: Annotated[int | None, typer.Option("--size")] = None,
     output_format: Annotated[ReportFormat, typer.Option("--format")] = ReportFormat.HUMAN,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Plan release gaps without inventing candidate words."""
     if language is None and not all_languages:
         all_languages = True
-    plans = [release_plan(code, target_size) for code in _selected(language, all_languages)]
+    repository = _repository(data_root)
+    plans = [
+        release_plan(code, target_size, repository.root)
+        for code in _selected(language, all_languages, repository)
+    ]
     if output_format == ReportFormat.JSON:
         typer.echo(render_json(plans if all_languages else plans[0]), nl=False)
         return
@@ -193,11 +262,13 @@ def release_plan_command(
 @report_app.command("publish")
 def report_publish_command(
     output_dir: Annotated[Path, typer.Option("--output-dir", "-o")] = Path("build/site"),
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Generate a deterministic static directory suitable for GitHub Pages."""
     from .publication import publish_reports
 
-    files = publish_reports(output_dir)
+    repository = _repository(data_root)
+    files = publish_reports(output_dir, repository.root)
     typer.echo(f"published {len(files)} static report files to {output_dir}")
 
 
@@ -206,14 +277,16 @@ def report_generate_command(
     language: Annotated[str, typer.Option("--language", "-l")],
     output_format: Annotated[str, typer.Option("--format")] = "markdown",
     output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Generate one deterministic Markdown, JSON, or static HTML dataset report."""
     from .dataset import dataset_statistics
     from .publication import render_dataset_html, render_dataset_markdown
 
-    _selected(language, False)
-    statistics = dataset_statistics(language)
-    plan = release_plan(language)
+    repository = _repository(data_root)
+    _selected(language, False, repository)
+    statistics = dataset_statistics(language, repository.root)
+    plan = release_plan(language, data_root=repository.root)
     if output_format == "markdown":
         content = render_dataset_markdown(statistics, plan)
     elif output_format == "json":
@@ -233,12 +306,14 @@ def report_generate_command(
 def similarity_command(
     language: Annotated[str, typer.Option("--language", "-l")],
     output_format: Annotated[ReportFormat, typer.Option("--format")] = ReportFormat.HUMAN,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Find deterministic, advisory similar-word pairs."""
     from .similarity import find_similar_words
 
-    _selected(language, False)
-    profile, records, _ = _load_and_validate(language)
+    repository = _repository(data_root)
+    _selected(language, False, repository)
+    profile, records, _ = _load_and_validate(language, repository)
     findings = [item.model_dump(mode="json") for item in find_similar_words(records, profile)]
     if output_format == ReportFormat.JSON:
         typer.echo(render_json(findings), nl=False)
@@ -257,9 +332,11 @@ def similarity_command(
 def score_command(
     language: Annotated[str, typer.Option("--language", "-l")],
     output_format: Annotated[ReportFormat, typer.Option("--format")] = ReportFormat.HUMAN,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Show explainable advisory candidate scores without changing status."""
-    report = build_curation_report(language)
+    repository = _repository(data_root)
+    report = build_curation_report(language, repository.root)
     scores = report["scores"]
     if output_format == ReportFormat.JSON:
         typer.echo(render_json(scores), nl=False)
@@ -275,9 +352,14 @@ def curate_report_command(
     all_languages: Annotated[bool, typer.Option("--all")] = False,
     output_format: Annotated[ReportFormat, typer.Option("--format")] = ReportFormat.HUMAN,
     output_dir: Annotated[Path | None, typer.Option("--output-dir")] = None,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Generate concise deterministic curation reports."""
-    reports = [build_curation_report(code) for code in _selected(language, all_languages)]
+    repository = _repository(data_root)
+    reports = [
+        build_curation_report(code, repository.root)
+        for code in _selected(language, all_languages, repository)
+    ]
     for report in reports:
         if output_format == ReportFormat.JSON:
             content = render_json(report)
@@ -308,19 +390,27 @@ def curate_report_command(
 
 
 @candidates_app.command("list")
-def candidates_list(language: Annotated[str, typer.Option("--language", "-l")]) -> None:
+def candidates_list(
+    language: Annotated[str, typer.Option("--language", "-l")],
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
     """List candidates in stable ID order."""
-    _, records, _, _ = load_curation_data(language)
+    repository = _repository(data_root)
+    _, records, _, _ = load_curation_data(language, repository.root)
     for record in sorted(records, key=lambda item: item.candidate.id):
         item = record.candidate
         typer.echo(f"{item.id}\t{item.word}\t{item.status.value}")
 
 
 @candidates_app.command("show")
-def candidates_show(candidate_id: str) -> None:
+def candidates_show(
+    candidate_id: str,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
     """Show one candidate and its curation records as JSON."""
-    for code in sorted(load_profiles()):
-        _, records, provenance, reviews = load_curation_data(code)
+    repository = _repository(data_root)
+    for code in sorted(load_profiles(repository.root)):
+        _, records, provenance, reviews = load_curation_data(code, repository.root)
         for record in records:
             if record.candidate.id == candidate_id:
                 payload = {
@@ -342,12 +432,16 @@ def candidates_show(candidate_id: str) -> None:
 
 
 @candidates_app.command("validate")
-def candidates_validate(language: Annotated[str, typer.Option("--language", "-l")]) -> None:
+def candidates_validate(
+    language: Annotated[str, typer.Option("--language", "-l")],
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
     """Validate candidate and linked curation data."""
     from .moderation import validate_review_history
     from .provenance import validate_provenance_links
 
-    _, records, provenance, reviews = load_curation_data(language)
+    repository = _repository(data_root)
+    _, records, provenance, reviews = load_curation_data(language, repository.root)
     statuses = {item.candidate.id: item.candidate.status for item in records}
     errors = validate_provenance_links(provenance, set(statuses)) + validate_review_history(
         reviews, statuses
@@ -367,6 +461,7 @@ def candidates_import(
     submitted_by: Annotated[str, typer.Option("--submitted-by")],
     license_eligibility: Annotated[str, typer.Option("--license-eligibility")],
     apply: Annotated[bool, typer.Option("--apply")] = False,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Import a local TXT/JSON/CSV batch; dry-run unless --apply is given."""
     from .batch import import_candidate_batch
@@ -378,6 +473,7 @@ def candidates_import(
         parsed_source = SourceType(source_type)
     except ValueError:
         raise typer.BadParameter(f"unknown source type: {source_type}") from None
+    repository = _repository(data_root)
     result = import_candidate_batch(
         path,
         language,
@@ -385,6 +481,7 @@ def candidates_import(
         submitted_by,
         license_eligibility == "eligible",
         apply=apply,
+        data_root=repository.root,
     )
     typer.echo(render_json(result), nl=False)
 
@@ -397,10 +494,12 @@ def _review_command(
     comment: str,
     apply: bool,
     reviewed_at: str | None,
+    data_root: Path | None,
 ) -> None:
     from .models import ReviewDecision
     from .review_workflow import load_criteria, moderate_candidate
 
+    repository = _repository(data_root)
     result = moderate_candidate(
         candidate_id,
         ReviewDecision(decision),
@@ -409,6 +508,7 @@ def _review_command(
         comment,
         apply=apply,
         reviewed_at=reviewed_at,
+        data_root=repository.root,
     )
     typer.echo(render_json(result), nl=False)
 
@@ -421,9 +521,12 @@ def review_approve(
     comment: Annotated[str, typer.Option("--comment")] = "",
     apply: Annotated[bool, typer.Option("--apply")] = False,
     reviewed_at: Annotated[str | None, typer.Option("--reviewed-at")] = None,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Approve a needs-review candidate; dry-run by default."""
-    _review_command(candidate_id, "approve", reviewer, criteria_file, comment, apply, reviewed_at)
+    _review_command(
+        candidate_id, "approve", reviewer, criteria_file, comment, apply, reviewed_at, data_root
+    )
 
 
 @review_app.command("reject")
@@ -433,9 +536,10 @@ def review_reject(
     comment: Annotated[str, typer.Option("--comment")] = "",
     apply: Annotated[bool, typer.Option("--apply")] = False,
     reviewed_at: Annotated[str | None, typer.Option("--reviewed-at")] = None,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Reject a submitted or needs-review candidate; dry-run by default."""
-    _review_command(candidate_id, "reject", reviewer, None, comment, apply, reviewed_at)
+    _review_command(candidate_id, "reject", reviewer, None, comment, apply, reviewed_at, data_root)
 
 
 @review_app.command("needs-review")
@@ -445,14 +549,24 @@ def review_needs_review(
     comment: Annotated[str, typer.Option("--comment")] = "",
     apply: Annotated[bool, typer.Option("--apply")] = False,
     reviewed_at: Annotated[str | None, typer.Option("--reviewed-at")] = None,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Return a submitted or rejected candidate to human review."""
-    _review_command(candidate_id, "needs_review", reviewer, None, comment, apply, reviewed_at)
+    _review_command(
+        candidate_id,
+        "needs_review",
+        reviewer,
+        None,
+        comment,
+        apply,
+        reviewed_at,
+        data_root,
+    )
 
 
-def _ensure_safe_output(output: Path, force: bool) -> None:
+def _ensure_safe_output(output: Path, force: bool, repository: DatasetRepository) -> None:
     try:
-        output.resolve().relative_to(DEFAULT_DATA_ROOT.resolve())
+        output.resolve().relative_to(repository.root)
     except ValueError:
         pass
     else:
@@ -468,14 +582,16 @@ def export(
     output_format: Annotated[ExportFormat, typer.Option("--format")],
     output: Annotated[Path, typer.Option("--output", "-o")],
     force: Annotated[bool, typer.Option("--force")] = False,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Export approved words in one deterministic format."""
-    _selected(language, False)
-    _ensure_safe_output(output, force)
-    profile, records, result = _load_and_validate(language)
+    repository = _repository(data_root)
+    _selected(language, False, repository)
+    _ensure_safe_output(output, force, repository)
+    profile, records, result = _load_and_validate(language, repository)
     if not result.valid:
         raise ValidationFailure(f"{language} has {result.error_count} validation error(s)")
-    eligible_ids = set(build_curation_report(language)["release_eligible_ids"])
+    eligible_ids = set(build_curation_report(language, repository.root)["release_eligible_ids"])
     eligible_records = [record for record in records if record.candidate.id in eligible_ids]
     export_wordlist(eligible_records, profile, output_format.value, output)
     typer.echo(f"wrote {len(approved_words(eligible_records, profile))} words to {output}")
@@ -484,23 +600,26 @@ def export(
 @app.command()
 def build(
     language: Annotated[str, typer.Option("--language", "-l")],
-    output_dir: Annotated[Path, typer.Option("--output-dir", "-o")],
+    output_dir: Annotated[Path | None, typer.Option("--output-dir", "-o")] = None,
     force: Annotated[bool, typer.Option("--force")] = False,
     size: Annotated[int | None, typer.Option("--size")] = None,
     allow_development_size: Annotated[bool, typer.Option("--allow-development-size")] = False,
     balanced: Annotated[bool, typer.Option("--balanced")] = False,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Validate, export all formats, write a manifest, and verify hashes."""
-    _selected(language, False)
-    _ensure_safe_output(output_dir, force)
-    profile, records, result = _load_and_validate(language)
+    repository = _repository(data_root)
+    output_dir = output_dir or Path("build") / language
+    _selected(language, False, repository)
+    _ensure_safe_output(output_dir, force, repository)
+    profile, records, result = _load_and_validate(language, repository)
     if not result.valid:
         raise ValidationFailure(f"{language} has {result.error_count} validation error(s)")
-    report = build_curation_report(language)
+    report = build_curation_report(language, repository.root)
     eligible_ids = set(report["release_eligible_ids"])
     eligible_records = [record for record in records if record.candidate.id in eligible_ids]
     eligible_records.sort(key=lambda item: normalize_word(item.candidate.word, profile))
-    policy = load_policy()
+    policy = load_policy(repository.root)
     if (
         size is not None
         and size not in profile.target_sizes
@@ -516,12 +635,14 @@ def build(
                 f"requested {size} words but only {len(eligible_records)} are release eligible"
             )
         eligible_records = (
-            balanced_selection(eligible_records, language, size)
+            balanced_selection(eligible_records, language, size, repository.root)
             if balanced
             else eligible_records[:size]
         )
     elif balanced:
-        eligible_records = balanced_selection(eligible_records, language, len(eligible_records))
+        eligible_records = balanced_selection(
+            eligible_records, language, len(eligible_records), repository.root
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     files = []
     for output_format in ExportFormat:

@@ -63,7 +63,10 @@ def load_blocklists_with_metadata(
                 f"blocklist {item.id} has unsupported severity {item.severity}"
             )
         path = directory / item.file
-        content = path.read_text(encoding="utf-8")
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise DataFormatError(f"cannot read blocklist {path}: {error}") from error
         if content and not content.endswith("\n"):
             raise DataFormatError(f"blocklist {path} must end with a newline")
         local: set[str] = set()

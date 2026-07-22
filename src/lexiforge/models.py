@@ -32,6 +32,7 @@ class WordLength(StrictModel):
 
 
 class LanguageProfile(StrictModel):
+    version: int = Field(ge=1)
     code: LanguageCode
     name: str = Field(min_length=1)
     locale: str = Field(min_length=2)

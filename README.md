@@ -25,6 +25,9 @@ uv run lexiforge release plan
 uv run lexiforge report generate --language nb --format html --output build/nb-report.html
 uv run lexiforge report publish --output-dir build/site
 uv run lexiforge build --language nb --size 16 --allow-development-size --balanced --output-dir build/nb-balanced
+uv run lexiforge doctor
+uv run lexiforge validate-repository
+uv run lexiforge validate --data-root ../lexiforge-data/data --all
 ```
 
 The CLI exits with 0 on success, 1 for validation/build failures, and 2 for invalid CLI usage or configuration detected by argument parsing. Expected errors are printed without tracebacks.
@@ -36,6 +39,10 @@ Profiles and candidate CSVs live under `data/languages/`; shared category and po
 Exports normalize eligible approved candidates and sort by Unicode code-point order. Eligibility requires provenance, licensing, resolved human criteria, and no error blocklist or mandatory flag. Scores never approve words. TXT, JSON, CSV, reports, and manifests contain no volatile build timestamps.
 
 M2 dataset engineering adds n-gram and distribution statistics, advisory optimisation, target-gap planning, structural language comparison, deterministic balanced selection, and static Markdown/JSON/HTML/SVG reporting. It never invents words or changes moderation decisions.
+
+## External dataset repositories
+
+Every data-aware command resolves its dataset-interface root in this order: an explicit `--data-root`, `LEXIFORGE_DATA_ROOT`, then bundled development data. A supplied root must contain a compatible `manifest.yaml`; invalid external data is rejected without silently falling back. No Git checkout name, remote, or sibling layout is assumed. Run `lexiforge doctor` to see the resolved root and `lexiforge validate-repository` before builds. See `docs/dataset-interface.md` and `docs/external-data-repositories.md` for the file contract and migration policy.
 
 ## Development
 
