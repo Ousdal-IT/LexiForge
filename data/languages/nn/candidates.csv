@@ -1,0 +1,9 @@
+id,language,word,status,category,source_type,submitted_at,reviewed_at,score,license_eligible,notes
+20000000-0000-4000-8000-000000000001,nn,hjort,approved,animals,manual,,,90,true,project example
+20000000-0000-4000-8000-000000000002,nn,fjell,approved,nature,manual,,,88,true,project example
+20000000-0000-4000-8000-000000000003,nn,eple,approved,food,manual,,,85,true,project example
+20000000-0000-4000-8000-000000000004,nn,bord,approved,household,manual,,,82,true,project example
+20000000-0000-4000-8000-000000000005,nn,springe,needs_review,actions,manual,,,70,true,project example
+20000000-0000-4000-8000-000000000006,nn,stille,submitted,qualities,manual,,,65,true,project example
+20000000-0000-4000-8000-000000000007,nn,båten,approved,household,manual,,,80,true,project example
+20000000-0000-4000-8000-000000000008,nn,øyre,approved,household,manual,,,77,true,project example

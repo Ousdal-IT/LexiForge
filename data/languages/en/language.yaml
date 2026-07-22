@@ -1,0 +1,14 @@
+code: en
+name: English
+locale: en
+normalization: NFC
+word_length: {minimum: 4, maximum: 12}
+allowed_pattern: "^[a-z]+$"
+allow_diacritics: false
+allow_apostrophes: false
+allow_hyphens: false
+allow_digits: false
+allow_internal_whitespace: false
+output_case: lowercase
+target_sizes: [2048, 4096]
+

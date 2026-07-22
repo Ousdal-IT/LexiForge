@@ -1,0 +1,9 @@
+id,language,word,status,category,source_type,submitted_at,reviewed_at,score,license_eligible,notes
+10000000-0000-4000-8000-000000000001,nb,bjørn,approved,animals,manual,,,90,true,project example
+10000000-0000-4000-8000-000000000002,nb,skog,approved,nature,manual,,,88,true,project example
+10000000-0000-4000-8000-000000000003,nb,eple,approved,food,manual,,,85,true,project example
+10000000-0000-4000-8000-000000000004,nb,stol,approved,household,manual,,,82,true,project example
+10000000-0000-4000-8000-000000000005,nb,hoppe,needs_review,actions,manual,,,70,true,project example
+10000000-0000-4000-8000-000000000006,nb,rolig,submitted,qualities,manual,,,65,true,project example
+10000000-0000-4000-8000-000000000007,nb,båten,approved,household,manual,,,80,true,project example
+10000000-0000-4000-8000-000000000008,nb,væske,approved,nature,manual,,,77,true,project example

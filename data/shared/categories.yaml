@@ -1,0 +1,14 @@
+categories:
+  - id: animals
+    labels: {nb: Dyr, nn: Dyr, en: Animals}
+  - id: nature
+    labels: {nb: Natur, nn: Natur, en: Nature}
+  - id: food
+    labels: {nb: Mat og drikke, nn: Mat og drikke, en: Food and drink}
+  - id: household
+    labels: {nb: Hjem og gjenstander, nn: Heim og gjenstandar, en: Home and objects}
+  - id: actions
+    labels: {nb: Handlinger, nn: Handlingar, en: Actions}
+  - id: qualities
+    labels: {nb: Egenskaper, nn: Eigenskapar, en: Qualities}
+

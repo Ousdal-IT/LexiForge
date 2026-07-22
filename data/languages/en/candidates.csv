@@ -1,0 +1,9 @@
+id,language,word,status,category,source_type,submitted_at,reviewed_at,score,license_eligible,notes
+30000000-0000-4000-8000-000000000001,en,bear,approved,animals,manual,,,90,true,project example
+30000000-0000-4000-8000-000000000002,en,forest,approved,nature,manual,,,88,true,project example
+30000000-0000-4000-8000-000000000003,en,apple,approved,food,manual,,,85,true,project example
+30000000-0000-4000-8000-000000000004,en,chair,approved,household,manual,,,82,true,project example
+30000000-0000-4000-8000-000000000005,en,jump,needs_review,actions,manual,,,70,true,project example
+30000000-0000-4000-8000-000000000006,en,quiet,submitted,qualities,manual,,,65,true,project example
+30000000-0000-4000-8000-000000000007,en,river,approved,nature,manual,,,80,true,project example
+30000000-0000-4000-8000-000000000008,en,lamp,approved,household,manual,,,77,true,project example

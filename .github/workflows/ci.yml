@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv sync --frozen --all-extras --dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy src
+      - run: uv run pytest
+      - run: ./scripts/check-repository-hygiene.sh
+      - run: git diff --check
+      - name: Deterministic language builds
+        run: |
+          for language in nb nn en; do
+            uv run lexiforge build --language "$language" --output-dir "build/first/$language"
+            uv run lexiforge build --language "$language" --output-dir "build/second/$language"
+            diff -ru "build/first/$language" "build/second/$language"
+          done
+

@@ -1,0 +1,6 @@
+unicode_normalization: NFC
+require_lowercase: true
+require_unique_words: true
+require_final_newline: true
+deterministic_sorting: true
+
