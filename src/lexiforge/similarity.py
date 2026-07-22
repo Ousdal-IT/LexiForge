@@ -21,6 +21,19 @@ def damerau_levenshtein(left: str, right: str) -> int:
     return matrix[-1][-1]
 
 
+def longest_common_substring_length(left: str, right: str) -> int:
+    previous = [0] * (len(right) + 1)
+    longest = 0
+    for left_char in left:
+        current = [0]
+        for index, right_char in enumerate(right, 1):
+            value = previous[index - 1] + 1 if left_char == right_char else 0
+            current.append(value)
+            longest = max(longest, value)
+        previous = current
+    return longest
+
+
 def find_similar_words(
     records: list[CandidateRecord], profile: LanguageProfile
 ) -> list[SimilarityFinding]:
@@ -29,8 +42,20 @@ def find_similar_words(
     for index, left in enumerate(words):
         for right in words[index + 1 :]:
             distance = damerau_levenshtein(left, right)
-            if distance > 1:
-                continue
+            common_prefix = 0
+            for a, b in zip(left, right, strict=False):
+                if a != b:
+                    break
+                common_prefix += 1
+            common_suffix = 0
+            for a, b in zip(reversed(left), reversed(right), strict=False):
+                if a != b:
+                    break
+                common_suffix += 1
+            vowel_set = set(profile.vowels)
+            left_skeleton = "".join(char for char in left if char not in vowel_set)
+            right_skeleton = "".join(char for char in right if char not in vowel_set)
+            visual_translation = str.maketrans({"i": "l", "m": "n"})
             if distance == 0:
                 rule = "similarity.exact"
             elif len(left) == len(right) and any(
@@ -44,8 +69,20 @@ def find_similar_words(
                 or right.endswith(left)
             ):
                 rule = "similarity.affix"
-            else:
+            elif distance == 1:
                 rule = "similarity.edit_distance_1"
+            elif common_prefix >= 3:
+                rule = "similarity.repeated_prefix"
+            elif common_suffix >= 3:
+                rule = "similarity.repeated_suffix"
+            elif longest_common_substring_length(left, right) >= 3:
+                rule = "similarity.repeated_stem"
+            elif left_skeleton == right_skeleton and left_skeleton:
+                rule = "similarity.phonetic_skeleton"
+            elif left.translate(visual_translation) == right.translate(visual_translation):
+                rule = "similarity.visual_shape"
+            else:
+                continue
             findings.append(
                 SimilarityFinding(
                     language=profile.code,

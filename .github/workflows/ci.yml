@@ -29,10 +29,18 @@ jobs:
       - run: git diff --check
       - run: uv run lexiforge validate --all
       - run: uv run lexiforge curate report --all --format json --output-dir build/reports
+      - run: uv run lexiforge optimise --all
+      - run: uv run lexiforge compare nb nn
+      - run: uv run lexiforge release plan
+      - name: Deterministic static reports
+        run: |
+          uv run lexiforge report publish --output-dir build/site-first
+          uv run lexiforge report publish --output-dir build/site-second
+          diff -ru build/site-first build/site-second
       - name: Deterministic language builds
         run: |
           for language in nb nn en; do
-            uv run lexiforge build --language "$language" --size 16 --allow-development-size --output-dir "build/first/$language"
-            uv run lexiforge build --language "$language" --size 16 --allow-development-size --output-dir "build/second/$language"
+            uv run lexiforge build --language "$language" --size 16 --allow-development-size --balanced --output-dir "build/first/$language"
+            uv run lexiforge build --language "$language" --size 16 --allow-development-size --balanced --output-dir "build/second/$language"
             diff -ru "build/first/$language" "build/second/$language"
           done

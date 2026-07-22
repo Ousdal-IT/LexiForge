@@ -11,4 +11,6 @@ LexiForge builds deterministic, multilingual passphrase-wordlist artefacts. M0 i
 - Provenance is mandatory for release eligibility and review history is append-only. Scores and similarity findings are advisory; never automate semantic approval.
 - Local mutation commands default to dry-run, stage complete UTF-8 files, and replace atomically only with `--apply`. Never manually edit generated reports or releases.
 - Third-party and bulk data require explicit provenance and license review. Do not infer CC0 eligibility or conceal a source.
+- Dataset optimisation and comparison remain read-only and non-semantic. Balanced selection must remain documented, deterministic, and downstream of release eligibility.
+- Static HTML/SVG reports contain no JavaScript, network assets, volatile timestamps, or manually edited generated output.
 - Before finishing, run `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src`, `uv run pytest`, `./scripts/check-repository-hygiene.sh`, and `git diff --check`.

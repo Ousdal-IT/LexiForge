@@ -38,6 +38,7 @@ class LanguageProfile(StrictModel):
     normalization: NormalizationForm = "NFC"
     word_length: WordLength
     allowed_pattern: str
+    vowels: str
     allow_diacritics: bool
     allow_apostrophes: bool = False
     allow_hyphens: bool = False

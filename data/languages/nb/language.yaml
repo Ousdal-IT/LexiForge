@@ -4,6 +4,7 @@ locale: nb-NO
 normalization: NFC
 word_length: {minimum: 4, maximum: 12}
 allowed_pattern: "^[a-zæøå]+$"
+vowels: "aeiouyæøå"
 allow_diacritics: true
 allow_apostrophes: false
 allow_hyphens: false
@@ -11,4 +12,3 @@ allow_digits: false
 allow_internal_whitespace: false
 output_case: lowercase
 target_sizes: [2048, 4096]
-

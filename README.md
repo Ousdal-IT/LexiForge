@@ -19,6 +19,12 @@ uv run lexiforge similarity --language nb
 uv run lexiforge score --language nb
 uv run lexiforge curate report --all --format markdown
 uv run lexiforge build --language nb --size 16 --allow-development-size --output-dir build/nb-dev
+uv run lexiforge optimise --all
+uv run lexiforge compare nb nn
+uv run lexiforge release plan
+uv run lexiforge report generate --language nb --format html --output build/nb-report.html
+uv run lexiforge report publish --output-dir build/site
+uv run lexiforge build --language nb --size 16 --allow-development-size --balanced --output-dir build/nb-balanced
 ```
 
 The CLI exits with 0 on success, 1 for validation/build failures, and 2 for invalid CLI usage or configuration detected by argument parsing. Expected errors are printed without tracebacks.
@@ -28,6 +34,8 @@ The CLI exits with 0 on success, 1 for validation/build failures, and 2 for inva
 Profiles and candidate CSVs live under `data/languages/`; shared category and policy configuration lives under `data/shared/`. The typed package in `src/lexiforge/` loads, normalizes, validates, analyses, exports, and manifests that data. Tests, documentation, CI, and repository-hygiene checks are kept in their corresponding top-level directories.
 
 Exports normalize eligible approved candidates and sort by Unicode code-point order. Eligibility requires provenance, licensing, resolved human criteria, and no error blocklist or mandatory flag. Scores never approve words. TXT, JSON, CSV, reports, and manifests contain no volatile build timestamps.
+
+M2 dataset engineering adds n-gram and distribution statistics, advisory optimisation, target-gap planning, structural language comparison, deterministic balanced selection, and static Markdown/JSON/HTML/SVG reporting. It never invents words or changes moderation decisions.
 
 ## Development
 

@@ -4,9 +4,15 @@ from typing import Annotated
 
 import typer
 
-from .analyse import analyse_candidates
 from .constants import DEFAULT_DATA_ROOT
 from .curation import build_curation_report, load_curation_data
+from .dataset import (
+    balanced_selection,
+    compare_languages,
+    dataset_statistics,
+    optimisation_report,
+    release_plan,
+)
 from .errors import ConfigurationError, LexiForgeError, ValidationFailure
 from .export import approved_words, export_wordlist
 from .io import load_blocklists, load_language_candidates
@@ -23,9 +29,13 @@ app = typer.Typer(
 curate_app = typer.Typer(help="Generate deterministic human-curation reports.")
 candidates_app = typer.Typer(help="Inspect and validate local candidate records.")
 review_app = typer.Typer(help="Record explicit local moderation decisions.")
+release_app = typer.Typer(help="Plan deterministic dataset releases.")
+report_app = typer.Typer(help="Generate static public dataset reports.")
 app.add_typer(curate_app, name="curate")
 app.add_typer(candidates_app, name="candidates")
 app.add_typer(review_app, name="review")
+app.add_typer(release_app, name="release")
+app.add_typer(report_app, name="report")
 
 
 class ReportFormat(StrEnum):
@@ -102,8 +112,8 @@ def analyse(
     """Report deterministic structural statistics."""
     reports = []
     for code in _selected(language, all_languages):
-        profile, records, result = _load_and_validate(code)
-        reports.append(analyse_candidates(records, profile, result))
+        _load_and_validate(code)
+        reports.append(dataset_statistics(code))
     if output_format == ReportFormat.JSON:
         typer.echo(render_json(reports if all_languages else reports[0]), nl=False)
     else:
@@ -113,6 +123,110 @@ def analyse(
             else render_analysis_human
         )
         typer.echo("\n".join(renderer(report).rstrip() for report in reports))
+
+
+@app.command("optimise")
+def optimise_command(
+    language: Annotated[str | None, typer.Option("--language", "-l")] = None,
+    all_languages: Annotated[bool, typer.Option("--all")] = False,
+    output_format: Annotated[ReportFormat, typer.Option("--format")] = ReportFormat.HUMAN,
+) -> None:
+    """Suggest deterministic dataset improvements without modifying data."""
+    reports = [optimisation_report(code) for code in _selected(language, all_languages)]
+    if output_format == ReportFormat.JSON:
+        typer.echo(render_json(reports if all_languages else reports[0]), nl=False)
+        return
+    for report in reports:
+        typer.echo(f"Language: {report['language']}")
+        for suggestion in report["suggestions"]:
+            typer.echo(f"- {suggestion['rule_id']}: {suggestion['message']}")
+        if not report["suggestions"]:
+            typer.echo("- No structural optimisation suggestions.")
+
+
+@app.command("compare")
+def compare_command(
+    left: str,
+    right: str,
+    output_format: Annotated[ReportFormat, typer.Option("--format")] = ReportFormat.HUMAN,
+) -> None:
+    """Compare two language datasets structurally, without translation."""
+    _selected(left, False)
+    _selected(right, False)
+    comparison = compare_languages(left, right)
+    if output_format == ReportFormat.JSON:
+        typer.echo(render_json(comparison), nl=False)
+        return
+    typer.echo(f"Structural comparison: {left} / {right}")
+    for language in (left, right):
+        item = comparison["comparison"][language]
+        typer.echo(
+            f"{language}: {item['candidate_count']} candidates, "
+            f"{item['approved_count']} approved, "
+            f"provenance {item['provenance_complete']}/{item['candidate_count']}"
+        )
+
+
+@release_app.command("plan")
+def release_plan_command(
+    language: Annotated[str | None, typer.Option("--language", "-l")] = None,
+    all_languages: Annotated[bool, typer.Option("--all")] = False,
+    target_size: Annotated[int | None, typer.Option("--size")] = None,
+    output_format: Annotated[ReportFormat, typer.Option("--format")] = ReportFormat.HUMAN,
+) -> None:
+    """Plan release gaps without inventing candidate words."""
+    if language is None and not all_languages:
+        all_languages = True
+    plans = [release_plan(code, target_size) for code in _selected(language, all_languages)]
+    if output_format == ReportFormat.JSON:
+        typer.echo(render_json(plans if all_languages else plans[0]), nl=False)
+        return
+    for plan in plans:
+        typer.echo(f"Language: {plan['language']}")
+        typer.echo(f"Eligible candidates: {plan['eligible_count']}")
+        typer.echo(f"Missing for {plan['target_size']} release: {plan['missing_count']}")
+        typer.echo("Approximate category needs:")
+        for category, count in plan["category_needs"].items():
+            typer.echo(f"- {category}: {count}")
+
+
+@report_app.command("publish")
+def report_publish_command(
+    output_dir: Annotated[Path, typer.Option("--output-dir", "-o")] = Path("build/site"),
+) -> None:
+    """Generate a deterministic static directory suitable for GitHub Pages."""
+    from .publication import publish_reports
+
+    files = publish_reports(output_dir)
+    typer.echo(f"published {len(files)} static report files to {output_dir}")
+
+
+@report_app.command("generate")
+def report_generate_command(
+    language: Annotated[str, typer.Option("--language", "-l")],
+    output_format: Annotated[str, typer.Option("--format")] = "markdown",
+    output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
+) -> None:
+    """Generate one deterministic Markdown, JSON, or static HTML dataset report."""
+    from .dataset import dataset_statistics
+    from .publication import render_dataset_html, render_dataset_markdown
+
+    _selected(language, False)
+    statistics = dataset_statistics(language)
+    plan = release_plan(language)
+    if output_format == "markdown":
+        content = render_dataset_markdown(statistics, plan)
+    elif output_format == "json":
+        content = render_json({"statistics": statistics, "release_plan": plan})
+    elif output_format == "html":
+        content = render_dataset_html(statistics, plan)
+    else:
+        raise typer.BadParameter("report format must be markdown, json, or html")
+    if output is None:
+        typer.echo(content, nl=False)
+    else:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(content, encoding="utf-8")
 
 
 @app.command("similarity")
@@ -374,6 +488,7 @@ def build(
     force: Annotated[bool, typer.Option("--force")] = False,
     size: Annotated[int | None, typer.Option("--size")] = None,
     allow_development_size: Annotated[bool, typer.Option("--allow-development-size")] = False,
+    balanced: Annotated[bool, typer.Option("--balanced")] = False,
 ) -> None:
     """Validate, export all formats, write a manifest, and verify hashes."""
     _selected(language, False)
@@ -400,7 +515,13 @@ def build(
             raise ValidationFailure(
                 f"requested {size} words but only {len(eligible_records)} are release eligible"
             )
-        eligible_records = eligible_records[:size]
+        eligible_records = (
+            balanced_selection(eligible_records, language, size)
+            if balanced
+            else eligible_records[:size]
+        )
+    elif balanced:
+        eligible_records = balanced_selection(eligible_records, language, len(eligible_records))
     output_dir.mkdir(parents=True, exist_ok=True)
     files = []
     for output_format in ExportFormat:
