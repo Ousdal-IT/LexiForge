@@ -1,0 +1,9 @@
+blocklists:
+  - id: nn-reserved-examples
+    file: words.txt
+    language: nn
+    type: reserved
+    severity: warning
+    description: Project-created harmless reserved examples.
+    license: project-created
+    version: 1

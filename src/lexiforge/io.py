@@ -12,13 +12,22 @@ def load_candidates(path: Path) -> list[CandidateRecord]:
     try:
         with path.open("r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle)
-            if tuple(reader.fieldnames or ()) != CSV_COLUMNS:
+            fieldnames = tuple(reader.fieldnames or ())
+            legacy_columns = tuple(
+                column
+                for column in CSV_COLUMNS
+                if column not in {"submitted_by", "reviewed_by", "provenance_id"}
+            )
+            if fieldnames not in {CSV_COLUMNS, legacy_columns}:
                 raise DataFormatError(
                     f"{path}: CSV columns must be exactly: {', '.join(CSV_COLUMNS)}"
                 )
             records = []
             for row_number, row in enumerate(reader, start=2):
                 try:
+                    row.setdefault("submitted_by", None)
+                    row.setdefault("reviewed_by", None)
+                    row.setdefault("provenance_id", None)
                     candidate = candidate_from_csv(row)
                 except ValidationError as error:
                     raise DataFormatError(

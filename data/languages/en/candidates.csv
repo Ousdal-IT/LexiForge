@@ -7,3 +7,19 @@ id,language,word,status,category,source_type,submitted_at,reviewed_at,score,lice
 30000000-0000-4000-8000-000000000006,en,quiet,submitted,qualities,manual,,,65,true,project example
 30000000-0000-4000-8000-000000000007,en,river,approved,nature,manual,,,80,true,project example
 30000000-0000-4000-8000-000000000008,en,lamp,approved,household,manual,,,77,true,project example
+30000000-0000-4000-8000-000000000009,en,cloud,approved,nature,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000010,en,field,approved,nature,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000011,en,green,approved,qualities,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000012,en,swift,approved,qualities,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000013,en,spoon,approved,household,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000014,en,window,approved,household,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000015,en,otter,approved,animals,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000016,en,rabbit,approved,animals,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000017,en,bake,approved,actions,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000018,en,bakke,approved,actions,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000019,en,trail,approved,nature,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000020,en,trial,approved,actions,manual,,,80,true,project-created M1 example
+30000000-0000-4000-8000-000000000021,en,stone,needs_review,nature,manual,,,60,true,project-created M1 example
+30000000-0000-4000-8000-000000000022,en,brush,submitted,household,manual,,,50,true,project-created M1 example
+30000000-0000-4000-8000-000000000023,en,whale,rejected,animals,manual,,,40,true,project-created M1 example
+30000000-0000-4000-8000-000000000024,en,amber,withdrawn,qualities,manual,,,40,true,project-created M1 example

@@ -3,4 +3,14 @@ require_lowercase: true
 require_unique_words: true
 require_final_newline: true
 deterministic_sorting: true
-
+required_review_criteria:
+  - common
+  - easy_to_read
+  - easy_to_pronounce
+  - easy_to_spell
+  - neutral
+  - not_proper_name
+  - not_brand
+  - not_abbreviation
+  - suitable_for_passphrase
+development_sizes: [16, 32, 64]

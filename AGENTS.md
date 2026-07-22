@@ -8,5 +8,7 @@ LexiForge builds deterministic, multilingual passphrase-wordlist artefacts. M0 i
 - MIT covers code and docs. CC0 applies only to eligible LexiForge-created data with verified rights. Never casually add dictionaries, bulk wordlists, definitions, or other third-party datasets; document all provenance and licenses.
 - Use Python 3.12+, typed code, standard library where practical, strict Pydantic models, safe YAML, Ruff, mypy, and pytest. No runtime network dependency.
 - Update documentation and tests with behavior or schema changes. Invalid examples belong under `tests/fixtures`, not production data.
+- Provenance is mandatory for release eligibility and review history is append-only. Scores and similarity findings are advisory; never automate semantic approval.
+- Local mutation commands default to dry-run, stage complete UTF-8 files, and replace atomically only with `--apply`. Never manually edit generated reports or releases.
+- Third-party and bulk data require explicit provenance and license review. Do not infer CC0 eligibility or conceal a source.
 - Before finishing, run `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src`, `uv run pytest`, `./scripts/check-repository-hygiene.sh`, and `git diff --check`.
-

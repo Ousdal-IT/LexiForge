@@ -1,0 +1,12 @@
+base_score: 50
+signals:
+  all_required_review_criteria_yes: 20
+  concrete_category: 5
+  preferred_length: 5
+  similarity_distance_1: -20
+  blocklist_warning: -25
+  missing_provenance: -50
+  unresolved_required_criterion: -30
+bounds: {minimum: 0, maximum: 100}
+preferred_length: {minimum: 4, maximum: 10}
+

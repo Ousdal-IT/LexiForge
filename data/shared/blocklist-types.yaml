@@ -1,0 +1,2 @@
+types: [reserved, offensive, proper_name, brand, sensitive, ambiguous, technical, custom]
+severities: [error, warning, review]

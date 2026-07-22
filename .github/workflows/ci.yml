@@ -27,11 +27,12 @@ jobs:
       - run: uv run pytest
       - run: ./scripts/check-repository-hygiene.sh
       - run: git diff --check
+      - run: uv run lexiforge validate --all
+      - run: uv run lexiforge curate report --all --format json --output-dir build/reports
       - name: Deterministic language builds
         run: |
           for language in nb nn en; do
-            uv run lexiforge build --language "$language" --output-dir "build/first/$language"
-            uv run lexiforge build --language "$language" --output-dir "build/second/$language"
+            uv run lexiforge build --language "$language" --size 16 --allow-development-size --output-dir "build/first/$language"
+            uv run lexiforge build --language "$language" --size 16 --allow-development-size --output-dir "build/second/$language"
             diff -ru "build/first/$language" "build/second/$language"
           done
-

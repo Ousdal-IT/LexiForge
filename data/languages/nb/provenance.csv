@@ -1,0 +1,25 @@
+id,candidate_id,source_kind,source_reference,contributor_assertion,license_basis,independently_contributed,bulk_source,created_at,notes
+p-nb-001,10000000-0000-4000-8000-000000000001,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-002,10000000-0000-4000-8000-000000000002,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-003,10000000-0000-4000-8000-000000000003,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-004,10000000-0000-4000-8000-000000000004,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-005,10000000-0000-4000-8000-000000000005,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-006,10000000-0000-4000-8000-000000000006,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-007,10000000-0000-4000-8000-000000000007,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-008,10000000-0000-4000-8000-000000000008,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-009,10000000-0000-4000-8000-000000000009,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-010,10000000-0000-4000-8000-000000000010,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-011,10000000-0000-4000-8000-000000000011,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-012,10000000-0000-4000-8000-000000000012,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-013,10000000-0000-4000-8000-000000000013,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-014,10000000-0000-4000-8000-000000000014,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-015,10000000-0000-4000-8000-000000000015,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-016,10000000-0000-4000-8000-000000000016,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-017,10000000-0000-4000-8000-000000000017,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-018,10000000-0000-4000-8000-000000000018,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-019,10000000-0000-4000-8000-000000000019,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-020,10000000-0000-4000-8000-000000000020,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-021,10000000-0000-4000-8000-000000000021,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-022,10000000-0000-4000-8000-000000000022,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-023,10000000-0000-4000-8000-000000000023,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance
+p-nb-024,10000000-0000-4000-8000-000000000024,manual,,Individually selected ordinary word,Contributor assertion and project review,true,false,,M1 example provenance

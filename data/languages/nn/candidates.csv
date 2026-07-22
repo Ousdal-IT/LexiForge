@@ -7,3 +7,19 @@ id,language,word,status,category,source_type,submitted_at,reviewed_at,score,lice
 20000000-0000-4000-8000-000000000006,nn,stille,submitted,qualities,manual,,,65,true,project example
 20000000-0000-4000-8000-000000000007,nn,båten,approved,household,manual,,,80,true,project example
 20000000-0000-4000-8000-000000000008,nn,øyre,approved,household,manual,,,77,true,project example
+20000000-0000-4000-8000-000000000009,nn,himmel,approved,nature,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000010,nn,mark,approved,nature,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000011,nn,grøn,approved,qualities,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000012,nn,rask,approved,qualities,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000013,nn,skei,approved,household,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000014,nn,vindauge,approved,household,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000015,nn,oter,approved,animals,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000016,nn,kanin,approved,animals,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000017,nn,bakke,approved,nature,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000018,nn,bake,approved,actions,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000019,nn,form,approved,qualities,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000020,nn,fram,approved,actions,manual,,,80,true,project-created M1 example
+20000000-0000-4000-8000-000000000021,nn,stein,needs_review,nature,manual,,,60,true,project-created M1 example
+20000000-0000-4000-8000-000000000022,nn,børste,submitted,household,manual,,,50,true,project-created M1 example
+20000000-0000-4000-8000-000000000023,nn,kval,rejected,animals,manual,,,40,true,project-created M1 example
+20000000-0000-4000-8000-000000000024,nn,ravgul,withdrawn,qualities,manual,,,40,true,project-created M1 example

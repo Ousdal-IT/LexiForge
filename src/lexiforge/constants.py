@@ -14,8 +14,11 @@ CSV_COLUMNS = (
     "category",
     "source_type",
     "submitted_at",
+    "submitted_by",
     "reviewed_at",
+    "reviewed_by",
     "score",
     "license_eligible",
+    "provenance_id",
     "notes",
 )

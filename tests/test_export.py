@@ -3,9 +3,8 @@ from lexiforge.export import approved_words, export_bytes
 
 def test_txt_exact_bytes(nb_records, nb_profile) -> None:
     words = approved_words(nb_records, nb_profile)
-    assert export_bytes(words, nb_profile, "txt") == (
-        "bjørn\nbåten\neple\nskog\nstol\n væske\n".replace(" ", "").encode()
-    )
+    expected = "".join(f"{word}\n" for word in sorted(words)).encode()
+    assert export_bytes(words, nb_profile, "txt") == expected
 
 
 def test_json_and_csv_are_stable(nb_records, nb_profile) -> None:
