@@ -16,4 +16,6 @@ M2.5 places a `DatasetRepository` boundary in front of all CLI data access. It r
 
 Despite its class name, this boundary represents a versioned dataset interface, not a Git checkout. It does not inspect repository names, remotes, branches, parent directories, or hosting providers. A directory, mounted CI artefact, extracted release, language-specific repository, or future integration is equivalent when it implements the documented interface.
 
+M3.0 adds an editorial service above the dataset and validator layers. Operations propose structured full-file changes; the service validates an isolated shadow repository and emits an immutable changeset. Rendering is separate. Apply verifies source hashes, revalidates, atomically replaces files, and rolls back partial replacement failures. Future CLI and editor layers must depend on this service rather than CSV serialization details.
+
 Language behavior is configuration-driven; adding a compatible profile does not change validator logic. M0 deliberately has no persistence service, web framework, accounts, external API, plugin architecture, or semantic classifier.

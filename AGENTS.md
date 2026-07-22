@@ -16,4 +16,6 @@ LexiForge builds deterministic, multilingual passphrase-wordlist artefacts. M0 i
 - Resolve dataset roots through `DatasetRepository`: explicit CLI option, environment, then bundled development data. Never silently fall back from an invalid selected repository.
 - Dataset schema/profile compatibility and complete repository layout must pass before normal commands. Keep tooling, canonical data, and future web concerns in separate repositories.
 - Treat the data root as an interface, not a Git topology: never assume repository names, sibling locations, remotes, branches, or hosting. Future languages, SDKs, and integrations must couple only through the versioned dataset contract.
+- All future repository mutations must go through `EditorialService`; UI, CLI, terminal, and desktop code must never manipulate CSV directly. Existing validators remain the single source of truth—compose them, never duplicate their rules.
+- Editorial previews and changeset IDs must be deterministic. Apply only previously validated, non-stale changesets through atomic writes with rollback, and avoid unrelated file diffs.
 - Before finishing, run `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src`, `uv run pytest`, `./scripts/check-repository-hygiene.sh`, and `git diff --check`.

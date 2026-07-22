@@ -6,3 +6,4 @@
 - Add M1 provenance, reviews, transitions, blocklist metadata, similarity, scoring, curation reports, safe local workflows, and development-size builds.
 - Add M2 dataset statistics, read-only optimisation, release planning, structural comparison, balanced selection, and static HTML/SVG publication.
 - Add M2.5 external dataset roots, manifests, compatibility checks, repository discovery, validation, and bundled/external reproducibility.
+- Add the M3.0 UI-independent editorial service, immutable changesets, deterministic previews, structured errors, shadow validation, atomic apply, and rollback.

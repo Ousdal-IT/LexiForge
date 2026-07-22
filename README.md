@@ -44,6 +44,10 @@ M2 dataset engineering adds n-gram and distribution statistics, advisory optimis
 
 Every data-aware command resolves its dataset-interface root in this order: an explicit `--data-root`, `LEXIFORGE_DATA_ROOT`, then bundled development data. A supplied root must contain a compatible `manifest.yaml`; invalid external data is rejected without silently falling back. No Git checkout name, remote, or sibling layout is assumed. Run `lexiforge doctor` to see the resolved root and `lexiforge validate-repository` before builds. See `docs/dataset-interface.md` and `docs/external-data-repositories.md` for the file contract and migration policy.
 
+## Editorial service
+
+`lexiforge.editorial` is the UI-independent mutation boundary for future editors. It creates immutable validated `ChangeSet` previews, detects stale repository state, validates proposed content in an isolated repository copy, and applies text files atomically with rollback. M3.0 intentionally adds no new user-facing editing command; see `docs/editorial-service.md` for the lifecycle and operation protocol.
+
 ## Development
 
 ```bash
