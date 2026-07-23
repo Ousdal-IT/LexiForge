@@ -1,16 +1,46 @@
 # LexiForge roadmap
 
-- **M0 — Foundation:** multilingual profiles, structural validation, deterministic export and manifests.
-- **M1 — Local curation:** provenance, reviews, transitions, blocklists, similarity, scoring, and release eligibility.
-- **M2 — Dataset engineering:** statistics, optimisation advice, release planning, structural comparison, balanced deterministic builds, and static publication reports.
-- **M2.5 — External data support:** manifest compatibility, repository discovery/validation, and deterministic bundled/external parity.
-- **M3.0 — Editorial service:** shared operation, preview, validation, changeset, atomic application, and rollback architecture for future editors.
-- **M3.1 — Editorial CLI:** dry-run-first candidate, provenance, and append-only review workflows backed exclusively by the editorial service.
-- **M3.2 — Editorial workbench:** the local Textual browser/editor, implemented as a thin consumer of M3.1 operations with no new mutation path.
-- **M3.3 — Editorial power tools:** dashboard, combinable filters, saved searches, batch review, similarity/duplicate assistance, comparison, blocklist operations, statistics, and session persistence.
-- **M3.4 — Workbench refinement:** prospective accessibility, large-repository profiling, richer exact replacement selection, and user-tested editorial ergonomics without changing the dataset schema.
-- **M4.0 — Local repository indexing:** disposable SQLite derived state, deterministic fingerprints, lifecycle commands, stale-index rejection, canonical fallback, and typed indexed reads for large local repositories.
-- **M4.x — Index refinement:** prospective measured incremental refreshes and further read-path integration without making canonical validation or mutation depend on the index.
-- **M5 — Web submission and moderation infrastructure:** deferred until the local curation and dataset contracts prove stable. Prospective work belongs in a separate web repository and may include a submission API/UI, authentication, durable audit storage, and deployment safeguards.
+LexiForge has completed the local editorial and repository-index foundation. The next releases
+integrate those stable contracts into richer presentation layers without adding alternative
+mutation paths or weakening canonical dataset validation.
+
+| Status | Version | Focus |
+| --- | --- | --- |
+| ✅ | v0.4.0 | Editorial Service |
+| ✅ | v0.4.1 | Editorial CLI |
+| ✅ | v0.5.0 | Textual Workbench |
+| ✅ | v0.5.1 | Editorial Power Tools |
+| ✅ | v0.6.0 | Repository Index & Hardening |
+| Planned | v0.7.0 | Workbench Performance |
+| Planned | v0.8.0 | PySide6 Desktop Workbench |
+| Planned | v0.9.0 | Web API / Cloudflare Workers |
+| Planned | v1.0.0 | Stable Editorial Platform |
+
+The check mark means implementation is complete; release tags and package publication remain
+separate release-process steps.
+
+## v0.7.0 — Workbench Performance
+
+Use the disposable repository index for safe Textual read paths while preserving exact canonical
+fallback parity. Keep the immutable workbench snapshot model, approval-critical completeness and
+all mutations through `EditorialService`. This release does not require incremental indexing.
+
+## v0.8.0 — PySide6 Desktop Workbench
+
+Add a desktop presentation layer over the existing operation, preview and editorial-service
+contracts. It must not write CSV directly or duplicate validation, normalization, moderation or
+eligibility rules.
+
+## v0.9.0 — Web API / Cloudflare Workers
+
+Build web submission and moderation infrastructure in a separate repository after the local
+contracts are stable. The web layer must consume the versioned dataset interface and editorial
+contracts, with explicit authentication, durable audit storage and deployment safeguards.
+
+## v1.0.0 — Stable Editorial Platform
+
+Stabilize the dataset and editorial contracts across CLI, Textual, desktop and web consumers.
+Release readiness requires documented compatibility, deterministic canonical outputs and complete
+validation independent of disposable indexes or presentation layers.
 
 The roadmap does not imply that development datasets are production security wordlists.
