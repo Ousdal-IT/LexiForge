@@ -5,11 +5,23 @@ from pathlib import Path, PurePosixPath
 
 from ..atomic import atomic_write_text
 from ..blocklists import load_blocklists_with_metadata
-from ..curation import build_curation_report
+from ..curation import build_curation_report, load_curation_data
 from ..io import load_language_candidates
+from ..models import (
+    CandidateRecord,
+    CandidateStatus,
+    LanguageProfile,
+    ProvenanceRecord,
+    ReviewRecord,
+    SourceType,
+    WordCandidate,
+)
+from ..moderation import validate_review_history
 from ..normalize import normalize_word
-from ..profiles import load_categories, load_profiles
+from ..profiles import load_categories, load_policy, load_profiles
+from ..provenance import validate_provenance_links
 from ..repository import DatasetRepository
+from ..similarity import find_similar_words
 from ..validate import validate_candidates
 from .changeset import ChangeSet, FileChange, ReleaseEligibilityImpact
 from .errors import (
@@ -42,6 +54,69 @@ class EditorialContext(EditorialContextProtocol):
             for item in load_language_candidates(language, self.repository.root)
         )
 
+    def candidate(self, candidate_id: str) -> WordCandidate:
+        for language in sorted(self._profiles):
+            for record in load_language_candidates(language, self.repository.root):
+                if record.candidate.id == candidate_id:
+                    return record.candidate
+        raise MutationRejectedError(f"unknown candidate: {candidate_id}")
+
+    def profile(self, language: str) -> LanguageProfile:
+        try:
+            return self._profiles[language]
+        except KeyError as error:
+            raise MutationRejectedError(f"unknown language: {language}") from error
+
+    def categories(self) -> set[str]:
+        return {item.id for item in load_categories(self.repository.root).categories}
+
+    def provenance(self, candidate_id: str) -> tuple[ProvenanceRecord, ...]:
+        candidate = self.candidate(candidate_id)
+        _, _, provenance, _ = load_curation_data(candidate.language, self.repository.root)
+        return tuple(item for item in provenance if item.candidate_id == candidate_id)
+
+    def reviews(self, candidate_id: str) -> tuple[ReviewRecord, ...]:
+        candidate = self.candidate(candidate_id)
+        _, _, _, reviews = load_curation_data(candidate.language, self.repository.root)
+        return tuple(item for item in reviews if item.candidate_id == candidate_id)
+
+    def required_criteria(self) -> tuple[str, ...]:
+        return tuple(load_policy(self.repository.root).required_review_criteria)
+
+    def error_blocklisted(self, language: str, word: str) -> bool:
+        profile = self.profile(language)
+        _, entries, _ = load_blocklists_with_metadata(
+            self.repository.root / "languages" / language / "blocklists", profile
+        )
+        return any(item.word == word and item.severity == "error" for item in entries)
+
+    def similarity_warnings(
+        self, language: str, word: str, exclude_candidate_id: str | None = None
+    ) -> tuple[str, ...]:
+        profile = self.profile(language)
+        records = [
+            item
+            for item in load_language_candidates(language, self.repository.root)
+            if item.candidate.id != exclude_candidate_id
+        ]
+        temporary = WordCandidate(
+            id="00000000-0000-4000-8000-000000000000",
+            language=language,
+            word=word,
+            status=CandidateStatus.SUBMITTED,
+            source_type=SourceType.MANUAL,
+        )
+        records.append(CandidateRecord(candidate=temporary))
+        normalized = normalize_word(word, profile)
+        findings = find_similar_words(records, profile)
+        return tuple(
+            sorted(
+                f"{item.word_a}/{item.word_b}:{item.rule_id}"
+                for item in findings
+                if normalized in {item.word_a, item.word_b}
+            )
+        )
+
 
 class EditorialService:
     """UI-independent coordinator for deterministic repository mutations."""
@@ -52,8 +127,42 @@ class EditorialService:
         if errors:
             raise RepositoryStateError("invalid repository: " + "; ".join(errors))
 
+    def candidate(self, candidate_id: str) -> WordCandidate:
+        """Resolve a canonical candidate identifier across configured languages."""
+        return EditorialContext(self.repository).candidate(candidate_id)
+
+    def provenance(self, candidate_id: str) -> tuple[ProvenanceRecord, ...]:
+        """Return deterministically ordered provenance history for a candidate."""
+        return tuple(
+            sorted(
+                EditorialContext(self.repository).provenance(candidate_id), key=lambda item: item.id
+            )
+        )
+
+    def reviews(self, candidate_id: str) -> tuple[ReviewRecord, ...]:
+        """Return append-only review history in deterministic order."""
+        return tuple(
+            sorted(
+                EditorialContext(self.repository).reviews(candidate_id),
+                key=lambda item: (item.reviewed_at, item.id),
+            )
+        )
+
     def preview(self, operation: EditorialOperation) -> ChangeSet:
         plan = operation.plan(EditorialContext(self.repository))
+        if not plan.files:
+            identifier = self._changeset_id(operation.name, ())
+            return ChangeSet(
+                id=identifier,
+                repository_root=self.repository.root,
+                operation=operation.name,
+                files=(),
+                warnings=tuple(sorted(plan.warnings)),
+                validation_status="no_change",
+                field_changes=tuple(sorted(plan.field_changes, key=lambda item: item.field)),
+                status_transitions=tuple(plan.status_transitions),
+                details=tuple(sorted(plan.details)),
+            )
         files = self._file_changes(plan)
         with self._staged_repository(files) as staged:
             self._validate_repository(staged)
@@ -70,11 +179,18 @@ class EditorialService:
             warnings=tuple(sorted(plan.warnings)),
             validation_status="valid",
             release_eligibility_impact=impact,
+            field_changes=tuple(sorted(plan.field_changes, key=lambda item: item.field)),
+            status_transitions=tuple(
+                sorted(plan.status_transitions, key=lambda item: item.candidate_id)
+            ),
+            details=tuple(sorted(plan.details)),
         )
 
     def apply(self, changeset: ChangeSet) -> None:
         if changeset.repository_root.resolve() != self.repository.root:
             raise RepositoryStateError("changeset belongs to a different repository")
+        if changeset.validation_status == "no_change":
+            return
         if changeset.validation_status != "valid":
             raise MutationRejectedError("only validated changesets can be applied")
         self._verify_current_state(changeset.files)
@@ -155,6 +271,16 @@ class EditorialService:
                     raise DuplicateCandidateError(f"duplicate normalized candidate in {language}")
                 raise ValidationError(
                     f"candidate validation failed for {language}: {', '.join(rules)}"
+                )
+            _, curated, provenance, reviews = load_curation_data(language, repository.root)
+            statuses = {item.candidate.id: item.candidate.status for item in curated}
+            relationship_errors = validate_provenance_links(
+                provenance, set(statuses)
+            ) + validate_review_history(reviews, statuses)
+            if relationship_errors:
+                raise ValidationError(
+                    f"curation validation failed for {language}: "
+                    + "; ".join(sorted(relationship_errors))
                 )
 
     def _eligibility_impact(

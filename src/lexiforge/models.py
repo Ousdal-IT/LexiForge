@@ -155,8 +155,8 @@ class WordCandidate(StrictModel):
     @field_validator("submitted_by", "reviewed_by")
     @classmethod
     def actor_identifier(cls, value: str | None) -> str | None:
-        if value is not None and not re.fullmatch(r"[a-z][a-z0-9_-]*:[A-Za-z0-9._-]+", value):
-            raise ValueError("actor identifier must use a stable namespace:value form")
+        if value is not None and not re.fullmatch(r"[a-z][a-z0-9_-]*(?::[A-Za-z0-9._-]+)?", value):
+            raise ValueError("actor identifier must be a stable pseudonymous identifier")
         return value
 
     @property
@@ -245,8 +245,8 @@ class ReviewRecord(StrictModel):
     @field_validator("reviewer_id")
     @classmethod
     def reviewer_identifier(cls, value: str) -> str:
-        if not re.fullmatch(r"[a-z][a-z0-9_-]*:[A-Za-z0-9._-]+", value):
-            raise ValueError("reviewer identifier must use namespace:value form")
+        if not re.fullmatch(r"[a-z][a-z0-9_-]*(?::[A-Za-z0-9._-]+)?", value):
+            raise ValueError("reviewer identifier must be a stable pseudonymous identifier")
         return value
 
 

@@ -18,4 +18,6 @@ Despite its class name, this boundary represents a versioned dataset interface, 
 
 M3.0 adds an editorial service above the dataset and validator layers. Operations propose structured full-file changes; the service validates an isolated shadow repository and emits an immutable changeset. Rendering is separate. Apply verifies source hashes, revalidates, atomically replaces files, and rolls back partial replacement failures. Future CLI and editor layers must depend on this service rather than CSV serialization details.
 
+M3.1 supplies immutable operation planners for candidate creation/editing/withdrawal/supersession, provenance addition, and append-only review transitions. CLI commands only collect typed input and render service results. Audit times and identities are explicit, candidate IDs survive edits, normalization and transitions remain centralized, and an applied operation always receives final repository validation.
+
 Language behavior is configuration-driven; adding a compatible profile does not change validator logic. M0 deliberately has no persistence service, web framework, accounts, external API, plugin architecture, or semantic classifier.

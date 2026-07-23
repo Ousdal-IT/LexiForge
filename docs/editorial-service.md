@@ -29,11 +29,10 @@ Changesets are repository-state-specific. Any affected file whose existence or S
 
 ## Operations and previews
 
-`EditorialOperation` is a typed protocol. An operation receives an editorial context with read, normalization, and duplicate-query helpers and returns an immutable `OperationPlan`. M3.0 reserves typed shells for add-candidate, edit-candidate, review, and provenance operations; their business behavior belongs to M3.1.
+`EditorialOperation` is a typed protocol. An operation receives an editorial context with repository reads and existing normalization, lookup, similarity, policy, provenance, review, and duplicate-query helpers, then returns an immutable `OperationPlan`. M3.1 implements candidate add/edit/withdraw/supersede, provenance addition, and review operation planners. Dataset schema 1 cannot safely represent provenance supersession, so that planner returns a structured rejection pending a versioned schema migration.
 
 Preview helpers render stable plain text and key-sorted JSON. Rendering is separate from the service and model, allowing future Textual and PySide6 clients to present the same changeset without owning mutation logic.
 
 ## Error model
 
 Expected failures use `EditorialError` subclasses: editorial `ValidationError`, `DuplicateCandidateError`, `RepositoryStateError`, and `MutationRejectedError`. UIs should catch these errors and present their actionable message without exposing an implementation traceback.
-

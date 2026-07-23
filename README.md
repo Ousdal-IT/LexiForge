@@ -46,7 +46,7 @@ Every data-aware command resolves its dataset-interface root in this order: an e
 
 ## Editorial service
 
-`lexiforge.editorial` is the UI-independent mutation boundary for future editors. It creates immutable validated `ChangeSet` previews, detects stale repository state, validates proposed content in an isolated repository copy, and applies text files atomically with rollback. M3.0 intentionally adds no new user-facing editing command; see `docs/editorial-service.md` for the lifecycle and operation protocol.
+`lexiforge.editorial` is the UI-independent mutation boundary for every editor. It creates immutable validated `ChangeSet` previews, detects stale repository state, validates proposed content in an isolated repository copy, and applies text files atomically with rollback. M3.1 adds dry-run-first `candidates`, `provenance`, and `review` workflows without moving business rules into the CLI; see `docs/editorial-cli.md` and `docs/editorial-service.md`.
 
 ## Development
 

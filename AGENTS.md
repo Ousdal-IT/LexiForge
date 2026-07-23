@@ -18,4 +18,7 @@ LexiForge builds deterministic, multilingual passphrase-wordlist artefacts. M0 i
 - Treat the data root as an interface, not a Git topology: never assume repository names, sibling locations, remotes, branches, or hosting. Future languages, SDKs, and integrations must couple only through the versioned dataset contract.
 - All future repository mutations must go through `EditorialService`; UI, CLI, terminal, and desktop code must never manipulate CSV directly. Existing validators remain the single source of truth—compose them, never duplicate their rules.
 - Editorial previews and changeset IDs must be deterministic. Apply only previously validated, non-stale changesets through atomic writes with rollback, and avoid unrelated file diffs.
+- Candidate, provenance, and review commands are thin operation adapters. Audit timestamps and actor IDs are explicit and never inferred; edits never change candidate IDs; review history is append-only and provenance history is preserved.
+- Mutations default to dry-run and require `--apply`. Approval is always human and explicit. Normalize duplicate checks through language profiles, validate the complete repository after apply, and test against temporary copies—never mutate bundled fixtures.
+- Keep terminal/desktop prompting and rendering out of the service layer. Do not introduce TUI or GUI logic into operation planners.
 - Before finishing, run `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src`, `uv run pytest`, `./scripts/check-repository-hygiene.sh`, and `git diff --check`.

@@ -1,3 +1,6 @@
+import json
+import re
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -12,11 +15,25 @@ from .dataset import (
     optimisation_report,
     release_plan,
 )
+from .editorial import (
+    AddCandidateOperation,
+    AddProvenanceOperation,
+    EditCandidateOperation,
+    EditorialError,
+    EditorialService,
+    RecordReviewOperation,
+    SupersedeCandidateOperation,
+    SupersedeProvenanceOperation,
+    WithdrawCandidateOperation,
+)
+from .editorial.operations import BatchImportOperation, EditorialOperation
+from .editorial.preview import render_json as render_editorial_json
+from .editorial.preview import render_text as render_editorial_text
 from .errors import ConfigurationError, LexiForgeError, ValidationFailure
 from .export import approved_words, export_wordlist
 from .io import load_blocklists, load_language_candidates
 from .manifest import create_manifest, verify_manifest, write_manifest
-from .models import CandidateRecord, LanguageProfile, ValidationResult
+from .models import CandidateRecord, LanguageProfile, SourceKind, SourceType, ValidationResult
 from .normalize import normalize_word
 from .profiles import load_categories, load_policy, load_profiles
 from .report import render_analysis_human, render_analysis_markdown, render_json
@@ -29,11 +46,13 @@ app = typer.Typer(
 curate_app = typer.Typer(help="Generate deterministic human-curation reports.")
 candidates_app = typer.Typer(help="Inspect and validate local candidate records.")
 review_app = typer.Typer(help="Record explicit local moderation decisions.")
+provenance_app = typer.Typer(help="Inspect and maintain candidate provenance.")
 release_app = typer.Typer(help="Plan deterministic dataset releases.")
 report_app = typer.Typer(help="Generate static public dataset reports.")
 app.add_typer(curate_app, name="curate")
 app.add_typer(candidates_app, name="candidates")
 app.add_typer(review_app, name="review")
+app.add_typer(provenance_app, name="provenance")
 app.add_typer(release_app, name="release")
 app.add_typer(report_app, name="report")
 
@@ -48,6 +67,11 @@ class ExportFormat(StrEnum):
     TXT = "txt"
     JSON = "json"
     CSV = "csv"
+
+
+class EditorialFormat(StrEnum):
+    TEXT = "text"
+    JSON = "json"
 
 
 def _repository(data_root: Path | None, *, require_layout: bool = True) -> DatasetRepository:
@@ -84,6 +108,87 @@ def _load_and_validate(
     blocklist = load_blocklists(repository.root / "languages" / language / "blocklists")
     result = validate_candidates(records, profile, categories, blocklist)
     return profile, records, result
+
+
+def _timestamp(value: str, option: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as error:
+        raise typer.BadParameter(f"{option} must be an ISO 8601 timestamp") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise typer.BadParameter(f"{option} must include an explicit UTC offset")
+    return parsed
+
+
+def _explicit_bool(value: str, option: str) -> bool:
+    if value.lower() not in {"true", "false"}:
+        raise typer.BadParameter(f"{option} must be true or false")
+    return value.lower() == "true"
+
+
+def _source_values(value: str) -> tuple[SourceType, SourceKind]:
+    aliases = {
+        "project-created": (SourceType.MANUAL, SourceKind.MANUAL),
+        "manual": (SourceType.MANUAL, SourceKind.MANUAL),
+        "community": (SourceType.COMMUNITY, SourceKind.COMMUNITY),
+        "fixture": (SourceType.FIXTURE, SourceKind.FIXTURE),
+        "verified-spelling": (SourceType.MANUAL, SourceKind.VERIFIED_SPELLING),
+        "third-party": (SourceType.IMPORT, SourceKind.THIRD_PARTY),
+    }
+    try:
+        return aliases[value]
+    except KeyError as error:
+        raise typer.BadParameter(f"unknown source type: {value}") from error
+
+
+def _editorial_result(
+    repository: DatasetRepository,
+    operation: EditorialOperation,
+    output_format: EditorialFormat,
+    apply: bool,
+) -> None:
+    try:
+        service = EditorialService(repository)
+        changeset = service.preview(operation)
+        if apply:
+            service.apply(changeset)
+            final_errors = DatasetRepository(repository.root).validate_layout()
+            if final_errors:
+                raise EditorialError(
+                    "final repository validation failed: " + "; ".join(final_errors)
+                )
+    except EditorialError as error:
+        if output_format == EditorialFormat.JSON:
+            error_type = re.sub(r"(?<!^)(?=[A-Z])", "_", error.__class__.__name__).lower()
+            error_type = error_type.removesuffix("_error")
+            payload = {
+                "error": {
+                    "message": str(error),
+                    "type": error_type,
+                },
+                "ok": False,
+            }
+            typer.echo(
+                json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n", nl=False
+            )
+        else:
+            typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(1) from None
+    if output_format == EditorialFormat.JSON:
+        body = json.loads(render_editorial_json(changeset))
+        typer.echo(
+            json.dumps(
+                {"applied": apply, "change_set": body, "ok": True},
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+            + "\n",
+            nl=False,
+        )
+    else:
+        typer.echo("APPLIED" if apply else "DRY RUN — no files written")
+        typer.echo(render_editorial_text(changeset), nl=False)
 
 
 @app.command("languages")
@@ -453,6 +558,102 @@ def candidates_validate(
     typer.echo(f"{language}: candidate, provenance, and review links valid")
 
 
+@candidates_app.command("add")
+def candidates_add(
+    language: Annotated[str, typer.Option("--language", "-l")],
+    word: Annotated[str, typer.Option("--word")],
+    category: Annotated[str, typer.Option("--category")],
+    submitter_id: Annotated[str, typer.Option("--submitter-id")],
+    source_type: Annotated[str, typer.Option("--source-type")],
+    source_reference: Annotated[str, typer.Option("--source-reference")],
+    license_eligible: Annotated[str, typer.Option("--license-eligible")],
+    license_basis: Annotated[str, typer.Option("--license-basis", "--license")],
+    created_at: Annotated[str, typer.Option("--created-at")],
+    comment: Annotated[str, typer.Option("--comment")] = "",
+    apply: Annotated[bool, typer.Option("--apply")] = False,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
+    non_interactive: Annotated[bool, typer.Option("--non-interactive")] = False,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Add a candidate and linked provenance; dry-run by default."""
+    del non_interactive
+    candidate_source, provenance_source = _source_values(source_type)
+    operation = AddCandidateOperation(
+        language=language,
+        word=word,
+        category=category,
+        submitter_id=submitter_id,
+        source_type=candidate_source,
+        source_kind=provenance_source,
+        source_reference=source_reference,
+        license_basis=license_basis,
+        license_eligible=_explicit_bool(license_eligible, "--license-eligible"),
+        created_at=_timestamp(created_at, "--created-at"),
+        comment=comment,
+    )
+    _editorial_result(_repository(data_root), operation, output_format, apply)
+
+
+@candidates_app.command("edit")
+def candidates_edit(
+    candidate_id: str,
+    word: Annotated[str | None, typer.Option("--word")] = None,
+    category: Annotated[str | None, typer.Option("--category")] = None,
+    note: Annotated[str | None, typer.Option("--note")] = None,
+    apply: Annotated[bool, typer.Option("--apply")] = False,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
+    non_interactive: Annotated[bool, typer.Option("--non-interactive")] = False,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Edit policy-permitted candidate fields without changing its identity."""
+    del non_interactive
+    _editorial_result(
+        _repository(data_root),
+        EditCandidateOperation(candidate_id, word=word, category=category, notes=note),
+        output_format,
+        apply,
+    )
+
+
+@candidates_app.command("withdraw")
+def candidates_withdraw(
+    candidate_id: str,
+    actor_id: Annotated[str, typer.Option("--actor-id")],
+    timestamp: Annotated[str, typer.Option("--timestamp")],
+    reason: Annotated[str, typer.Option("--reason")],
+    apply: Annotated[bool, typer.Option("--apply")] = False,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Withdraw an approved candidate while preserving its history."""
+    operation = WithdrawCandidateOperation(
+        candidate_id, actor_id, _timestamp(timestamp, "--timestamp"), reason
+    )
+    _editorial_result(_repository(data_root), operation, output_format, apply)
+
+
+@candidates_app.command("supersede")
+def candidates_supersede(
+    candidate_id: str,
+    replacement_id: Annotated[str, typer.Option("--replacement-id")],
+    actor_id: Annotated[str, typer.Option("--actor-id")],
+    timestamp: Annotated[str, typer.Option("--timestamp")],
+    reason: Annotated[str, typer.Option("--reason")],
+    apply: Annotated[bool, typer.Option("--apply")] = False,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Supersede an approved candidate with an explicit replacement."""
+    operation = SupersedeCandidateOperation(
+        candidate_id,
+        replacement_id,
+        actor_id,
+        _timestamp(timestamp, "--timestamp"),
+        reason,
+    )
+    _editorial_result(_repository(data_root), operation, output_format, apply)
+
+
 @candidates_app.command("import")
 def candidates_import(
     path: Path,
@@ -461,10 +662,11 @@ def candidates_import(
     submitted_by: Annotated[str, typer.Option("--submitted-by")],
     license_eligibility: Annotated[str, typer.Option("--license-eligibility")],
     apply: Annotated[bool, typer.Option("--apply")] = False,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.JSON,
     data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Import a local TXT/JSON/CSV batch; dry-run unless --apply is given."""
-    from .batch import import_candidate_batch
+    from .batch import read_batch_words
     from .models import SourceType
 
     if license_eligibility not in {"eligible", "ineligible"}:
@@ -474,16 +676,103 @@ def candidates_import(
     except ValueError:
         raise typer.BadParameter(f"unknown source type: {source_type}") from None
     repository = _repository(data_root)
-    result = import_candidate_batch(
-        path,
-        language,
-        parsed_source,
-        submitted_by,
-        license_eligibility == "eligible",
-        apply=apply,
-        data_root=repository.root,
+    operation = BatchImportOperation(
+        language=language,
+        words=tuple(read_batch_words(path)),
+        source_type=parsed_source,
+        submitted_by=submitted_by,
+        license_eligible=license_eligibility == "eligible",
     )
-    typer.echo(render_json(result), nl=False)
+    _editorial_result(repository, operation, output_format, apply)
+
+
+@provenance_app.command("show")
+def provenance_show(
+    candidate_id: str,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Show all provenance history for a candidate."""
+    try:
+        service = EditorialService(_repository(data_root))
+        candidate = service.candidate(candidate_id)
+        records = service.provenance(candidate_id)
+        report = build_curation_report(candidate.language, service.repository.root)
+    except EditorialError as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(1) from None
+    payload = {
+        "candidate": {"id": candidate.id, "language": candidate.language, "word": candidate.word},
+        "license_eligible": candidate.is_license_eligible,
+        "provenance": [item.model_dump(mode="json") for item in records],
+        "release_eligible": candidate.id in report["release_eligible_ids"],
+        "schema_note": (
+            "schema 1 records are retained as active history; supersession is unsupported"
+        ),
+    }
+    if output_format == EditorialFormat.JSON:
+        typer.echo(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n", nl=False
+        )
+        return
+    typer.echo(f"Candidate: {candidate.id} ({candidate.language}: {candidate.word})")
+    typer.echo(
+        f"License eligible: {str(candidate.is_license_eligible).lower()}; "
+        f"release eligible: {str(payload['release_eligible']).lower()}"
+    )
+    for item in records:
+        typer.echo(
+            f"- {item.id}: {item.source_kind.value}; {item.license_basis}; "
+            f"reference={item.source_reference or '-'}; "
+            f"created={item.created_at.isoformat() if item.created_at else '-'}"
+        )
+    typer.echo(payload["schema_note"])
+
+
+@provenance_app.command("add")
+def provenance_add(
+    candidate_id: str,
+    source_type: Annotated[str, typer.Option("--source-type")],
+    source_reference: Annotated[str, typer.Option("--source-reference")],
+    contributor_id: Annotated[str, typer.Option("--contributor-id")],
+    license_basis: Annotated[str, typer.Option("--license-basis", "--license")],
+    license_eligible: Annotated[str, typer.Option("--license-eligible")],
+    recorded_at: Annotated[str, typer.Option("--recorded-at")],
+    comment: Annotated[str, typer.Option("--comment")] = "",
+    apply: Annotated[bool, typer.Option("--apply")] = False,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Append explicit provenance to a candidate; dry-run by default."""
+    _, source_kind = _source_values(source_type)
+    operation = AddProvenanceOperation(
+        candidate_id=candidate_id,
+        source_kind=source_kind,
+        source_reference=source_reference,
+        contributor_id=contributor_id,
+        license_basis=license_basis,
+        license_eligible=_explicit_bool(license_eligible, "--license-eligible"),
+        recorded_at=_timestamp(recorded_at, "--recorded-at"),
+        comment=comment,
+    )
+    _editorial_result(_repository(data_root), operation, output_format, apply)
+
+
+@provenance_app.command("supersede")
+def provenance_supersede(
+    provenance_id: str,
+    actor_id: Annotated[str, typer.Option("--actor-id")],
+    timestamp: Annotated[str, typer.Option("--timestamp")],
+    reason: Annotated[str, typer.Option("--reason")],
+    apply: Annotated[bool, typer.Option("--apply")] = False,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Reject provenance supersession safely when schema 1 cannot preserve it."""
+    operation = SupersedeProvenanceOperation(
+        provenance_id, actor_id, _timestamp(timestamp, "--timestamp"), reason
+    )
+    _editorial_result(_repository(data_root), operation, output_format, apply)
 
 
 def _review_command(
@@ -492,63 +781,108 @@ def _review_command(
     reviewer: str,
     criteria_file: Path | None,
     comment: str,
+    reason: str,
+    flags: tuple[str, ...],
     apply: bool,
     reviewed_at: str | None,
+    output_format: EditorialFormat,
     data_root: Path | None,
 ) -> None:
     from .models import ReviewDecision
     from .review_workflow import load_criteria, moderate_candidate
 
-    repository = _repository(data_root)
-    result = moderate_candidate(
-        candidate_id,
-        ReviewDecision(decision),
-        reviewer,
-        load_criteria(criteria_file),
-        comment,
-        apply=apply,
-        reviewed_at=reviewed_at,
-        data_root=repository.root,
+    if reviewed_at is None:
+        if apply:
+            raise typer.BadParameter("--reviewed-at is required with --apply")
+        # Pre-M3.1 compatibility preview: it cannot form an auditable ChangeSet without a
+        # timestamp, but remains a read-only validation path for existing scripts.
+        result = moderate_candidate(
+            candidate_id,
+            ReviewDecision(decision),
+            reviewer,
+            load_criteria(criteria_file),
+            comment,
+            apply=False,
+            data_root=_repository(data_root).root,
+        )
+        typer.echo(render_json(result), nl=False)
+        return
+
+    operation = RecordReviewOperation(
+        candidate_id=candidate_id,
+        decision=ReviewDecision(decision),
+        reviewer_id=reviewer,
+        reviewed_at=_timestamp(reviewed_at, "--reviewed-at"),
+        criteria=load_criteria(criteria_file),
+        comment=comment,
+        reason=reason,
+        flags=flags,
     )
-    typer.echo(render_json(result), nl=False)
+    _editorial_result(_repository(data_root), operation, output_format, apply)
 
 
 @review_app.command("approve")
 def review_approve(
     candidate_id: str,
-    reviewer: Annotated[str, typer.Option("--reviewer")],
+    reviewer: Annotated[str, typer.Option("--reviewer-id", "--reviewer")],
     criteria_file: Annotated[Path, typer.Option("--criteria-file")],
+    reviewed_at: Annotated[str | None, typer.Option("--reviewed-at")] = None,
     comment: Annotated[str, typer.Option("--comment")] = "",
     apply: Annotated[bool, typer.Option("--apply")] = False,
-    reviewed_at: Annotated[str | None, typer.Option("--reviewed-at")] = None,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
     data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Approve a needs-review candidate; dry-run by default."""
     _review_command(
-        candidate_id, "approve", reviewer, criteria_file, comment, apply, reviewed_at, data_root
+        candidate_id,
+        "approve",
+        reviewer,
+        criteria_file,
+        comment,
+        "",
+        (),
+        apply,
+        reviewed_at,
+        output_format,
+        data_root,
     )
 
 
 @review_app.command("reject")
 def review_reject(
     candidate_id: str,
-    reviewer: Annotated[str, typer.Option("--reviewer")],
+    reviewer: Annotated[str, typer.Option("--reviewer-id", "--reviewer")],
+    reviewed_at: Annotated[str, typer.Option("--reviewed-at")],
+    reason: Annotated[str, typer.Option("--reason")],
     comment: Annotated[str, typer.Option("--comment")] = "",
     apply: Annotated[bool, typer.Option("--apply")] = False,
-    reviewed_at: Annotated[str | None, typer.Option("--reviewed-at")] = None,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
     data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Reject a submitted or needs-review candidate; dry-run by default."""
-    _review_command(candidate_id, "reject", reviewer, None, comment, apply, reviewed_at, data_root)
+    _review_command(
+        candidate_id,
+        "reject",
+        reviewer,
+        None,
+        comment,
+        reason,
+        (),
+        apply,
+        reviewed_at,
+        output_format,
+        data_root,
+    )
 
 
 @review_app.command("needs-review")
 def review_needs_review(
     candidate_id: str,
-    reviewer: Annotated[str, typer.Option("--reviewer")],
+    reviewer: Annotated[str, typer.Option("--reviewer-id", "--reviewer")],
+    reviewed_at: Annotated[str, typer.Option("--reviewed-at")],
     comment: Annotated[str, typer.Option("--comment")] = "",
     apply: Annotated[bool, typer.Option("--apply")] = False,
-    reviewed_at: Annotated[str | None, typer.Option("--reviewed-at")] = None,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
     data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
 ) -> None:
     """Return a submitted or rejected candidate to human review."""
@@ -558,8 +892,64 @@ def review_needs_review(
         reviewer,
         None,
         comment,
+        "",
+        (),
         apply,
         reviewed_at,
+        output_format,
+        data_root,
+    )
+
+
+@review_app.command("start")
+def review_start(
+    candidate_id: str,
+    reviewer: Annotated[str, typer.Option("--reviewer-id", "--reviewer")],
+    reviewed_at: Annotated[str, typer.Option("--reviewed-at")],
+    comment: Annotated[str, typer.Option("--comment")] = "",
+    apply: Annotated[bool, typer.Option("--apply")] = False,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Persist the canonical submitted-to-needs-review transition."""
+    _review_command(
+        candidate_id,
+        "needs_review",
+        reviewer,
+        None,
+        comment,
+        "",
+        (),
+        apply,
+        reviewed_at,
+        output_format,
+        data_root,
+    )
+
+
+@review_app.command("flag")
+def review_flag(
+    candidate_id: str,
+    reviewer: Annotated[str, typer.Option("--reviewer-id", "--reviewer")],
+    reviewed_at: Annotated[str, typer.Option("--reviewed-at")],
+    flag: Annotated[str, typer.Option("--flag")],
+    comment: Annotated[str, typer.Option("--comment")],
+    apply: Annotated[bool, typer.Option("--apply")] = False,
+    output_format: Annotated[EditorialFormat, typer.Option("--format")] = EditorialFormat.TEXT,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Record a visible canonical needs-review flag."""
+    _review_command(
+        candidate_id,
+        "needs_review",
+        reviewer,
+        None,
+        comment,
+        "",
+        (flag,),
+        apply,
+        reviewed_at,
+        output_format,
         data_root,
     )
 
