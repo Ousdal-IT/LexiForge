@@ -18,10 +18,11 @@ form, or the exact UUID. Select column headings to sort; select the same heading
 the order. The candidate table provides Textual's scrolling and page navigation. The detail pane
 shows identity, normalization, status, eligibility reasons, provenance, and recent reviews.
 
-The repository is parsed once into an immutable read snapshot when the editor opens. Filtering and
-sorting operate on that snapshot instead of reparsing CSV files. `Ctrl-R` explicitly validates and
-reloads changed repository files. Similarity remains part of service previews rather than the
-browser snapshot, avoiding an expensive all-pairs calculation while browsing large repositories.
+When a valid disposable index exists, the editor uses the backend-neutral workbench query layer for
+bounded pages, search, filters and dashboard reads. Candidate details, provenance and reviews load
+only for the selected row. Missing, stale, corrupt or incompatible indexes select the complete
+immutable canonical snapshot fallback. `Ctrl-R` explicitly validates and reloads changed repository
+files; `Alt-Left`/`Alt-Right` navigate pages, and `Ctrl-Home`/`Ctrl-End` jump to the first/last page.
 
 ## Editorial workflow
 
@@ -59,18 +60,19 @@ the same service behavior used by the CLI.
 ## Architecture
 
 ```text
-Textual widgets and modal screens
-        ↓ typed operation input
-EditorialService.preview / apply
-        ↓
-DatasetRepository and canonical validators
-        ↓
-CSV dataset interface
+Textual widgets
+        ↓ typed query or operation input
+WorkbenchRepositoryView → RepositoryIndex
+        ↘ canonical RepositorySnapshot fallback
+        ↓ mutations only
+EditorialService.preview / apply → CSV dataset interface
 ```
 
-The workbench contains presentation state and a read-optimized snapshot only. It has no CSV writer,
-moderation transition table, normalization policy, duplicate detector, eligibility engine, or
-preview formatter. A future richer editor must continue using the same boundary.
+The workbench contains presentation state and one selected read backend. It has no SQLite/CSV writer,
+moderation transition table, normalization policy, duplicate detector, eligibility engine, or preview
+formatter. After a successful mutation it switches to canonical fallback immediately; a verified
+full index rebuild may reactivate indexed reads in a background worker. A future richer editor must
+continue using the same boundary; see `docs/workbench-index-integration.md`.
 
 For large-session features—dashboard, saved searches, batch review, similarity, comparison,
 duplicate triage, blocklists, and statistics—see `docs/editorial-power-tools.md`.

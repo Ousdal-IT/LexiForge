@@ -55,6 +55,8 @@ class IndexedCandidate:
     release_eligible: bool
     eligibility_reasons: tuple[str, ...]
     blocklist_match: bool
+    review_state: str = "pending"
+    reviewer: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

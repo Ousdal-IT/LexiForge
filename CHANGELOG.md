@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 0.7.0 - Unreleased
 
 - Establish the multilingual M0 package, CLI, validation, analysis, deterministic exports, manifests, documentation, tests, and CI.
 - Add M1 provenance, reviews, transitions, blocklist metadata, similarity, scoring, curation reports, safe local workflows, and development-size builds.
@@ -13,3 +13,4 @@
 - Harden batch approval: require explicit canonical review criteria, validate every candidate before writing, report per-candidate failures, and apply successful batches atomically.
 - Add the disposable SQLite repository index, deterministic fingerprints, index lifecycle CLI, canonical fallback, and indexed read primitives for lookup, search, statistics, provenance, reviews, and similarity candidate generation.
 - Harden M4.0 with canonical/index search, filtering, ordering, statistics, eligibility and Unicode parity; deterministic metadata; strict SQLite integrity checks; pre/post-build fingerprints; ownership-aware locks; and corruption-safe fallback.
+- Integrate the hardened repository index into the Textual workbench through a typed backend-neutral query layer with bounded pagination, lazy details, indexed dashboard reads, canonical fallback, mutation invalidation, and background full rebuilds.

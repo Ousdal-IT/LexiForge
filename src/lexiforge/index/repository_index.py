@@ -2,7 +2,7 @@
 
 import json
 import sqlite3
-from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +38,18 @@ class RepositoryIndex:
         self.repository = repository
         self.path = path
         self._connection = connection
+        self._connection.create_function(
+            "CASEFOLD",
+            1,
+            lambda value: str(value).casefold(),
+            deterministic=True,
+        )
+        self._connection.create_function(
+            "ISO_TIMESTAMP",
+            1,
+            lambda value: datetime.fromisoformat(str(value)).timestamp(),
+            deterministic=True,
+        )
         self.metadata = metadata
 
     @classmethod
@@ -144,17 +156,38 @@ class RepositoryIndex:
         if not values:
             names = [item[1] for item in self._connection.execute("PRAGMA table_info(candidates)")]
             values = dict(zip(names, row, strict=True))
+        latest_review = (
+            ReviewRecord.model_validate_json(values["latest_review_json"])
+            if values.get("latest_review_json")
+            else None
+        )
         return IndexedCandidate(
             candidate=WordCandidate.model_validate_json(values["candidate_json"]),
             normalized_word=values["normalized_word"],
             release_eligible=bool(values["release_eligible"]),
             eligibility_reasons=tuple(json.loads(values["eligibility_reasons"])),
             blocklist_match=bool(values["blocklist_match"]),
+            review_state=(
+                "pending"
+                if latest_review is None
+                else "flagged"
+                if latest_review.flags
+                else "complete"
+            ),
+            reviewer=latest_review.reviewer_id if latest_review else None,
+        )
+
+    @staticmethod
+    def _candidate_projection() -> str:
+        return (
+            "c.*, (SELECT r.record_json FROM reviews r WHERE r.candidate_id=c.id "
+            "ORDER BY ISO_TIMESTAMP(r.reviewed_at) DESC, r.id DESC LIMIT 1) AS latest_review_json"
         )
 
     def get_candidate(self, candidate_id: str) -> IndexedCandidate | None:
         row = self._connection.execute(
-            "SELECT * FROM candidates WHERE id=?", (candidate_id,)
+            f"SELECT {self._candidate_projection()} FROM candidates c WHERE c.id=?",
+            (candidate_id,),
         ).fetchone()
         return self._row(row) if row else None
 
@@ -162,7 +195,8 @@ class RepositoryIndex:
         self, language: str, normalized_word: str
     ) -> tuple[IndexedCandidate, ...]:
         rows = self._connection.execute(
-            "SELECT * FROM candidates WHERE language=? AND normalized_word=? ORDER BY id",
+            f"SELECT {self._candidate_projection()} FROM candidates c "
+            "WHERE c.language=? AND c.normalized_word=? ORDER BY c.id",
             (language, normalized_word),
         ).fetchall()
         return tuple(self._row(row) for row in rows)
@@ -175,33 +209,121 @@ class RepositoryIndex:
         category: str | None = None,
         status: CandidateStatus | str | None = None,
         release_eligible: bool | None = None,
+        review_state: str | None = None,
+        contributor: str | None = None,
+        reviewer: str | None = None,
+        source_type: str | None = None,
+        license_eligible: bool | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        modified_after: datetime | None = None,
+        modified_before: datetime | None = None,
+        similarity_warning: bool | None = None,
+        blocklist_state: str | None = None,
+        include_normalized_search: bool = False,
+        sort_field: str = "id",
+        reverse: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> IndexQueryPage:
         clauses: list[str] = []
         values: list[Any] = []
+        if query:
+            fields = "c.word || ' ' || c.id"
+            if include_normalized_search:
+                fields = "c.word || ' ' || c.normalized_word || ' ' || c.id"
+            clauses.append(f"INSTR(CASEFOLD({fields}), CASEFOLD(?)) > 0")
+            values.append(query)
         if language:
-            clauses.append("language=?")
+            clauses.append("c.language=?")
             values.append(language)
         if category:
-            clauses.append("category=?")
+            clauses.append("c.category=?")
             values.append(category)
         if status:
-            clauses.append("status=?")
+            clauses.append("c.status=?")
             values.append(status.value if isinstance(status, CandidateStatus) else status)
         if release_eligible is not None:
-            clauses.append("release_eligible=?")
+            clauses.append("c.release_eligible=?")
             values.append(int(release_eligible))
+        latest_review = (
+            "(SELECT r.record_json FROM reviews r WHERE r.candidate_id=c.id "
+            "ORDER BY ISO_TIMESTAMP(r.reviewed_at) DESC, r.id DESC LIMIT 1)"
+        )
+        if review_state == "pending":
+            clauses.append(f"{latest_review} IS NULL")
+        elif review_state == "flagged":
+            clauses.append(f"JSON_ARRAY_LENGTH({latest_review}, '$.flags') > 0")
+        elif review_state == "complete":
+            clauses.append(
+                f"{latest_review} IS NOT NULL AND JSON_ARRAY_LENGTH({latest_review}, '$.flags') = 0"
+            )
+        if contributor is not None:
+            clauses.append("c.submitted_by=?")
+            values.append(contributor)
+        if reviewer is not None:
+            clauses.append(f"JSON_EXTRACT({latest_review}, '$.reviewer_id')=?")
+            values.append(reviewer)
+        if source_type is not None:
+            clauses.append("c.source_type=?")
+            values.append(source_type)
+        if license_eligible is not None:
+            clauses.append("c.license_eligible=?")
+            values.append(int(license_eligible))
+        for field, lower, upper in (
+            ("submitted_at", created_after, created_before),
+            ("reviewed_at", modified_after, modified_before),
+        ):
+            if lower is not None:
+                clauses.append(f"c.{field} IS NOT NULL AND ISO_TIMESTAMP(c.{field})>=?")
+                values.append(lower.timestamp())
+            if upper is not None:
+                clauses.append(f"c.{field} IS NOT NULL AND ISO_TIMESTAMP(c.{field})<=?")
+                values.append(upper.timestamp())
+        if similarity_warning is not None:
+            clauses.append("0=?")
+            values.append(int(similarity_warning))
+        if blocklist_state is not None:
+            clauses.append("c.blocklist_match=?")
+            values.append(int(blocklist_state == "match"))
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        total = int(
+            self._connection.execute(
+                f"SELECT COUNT(*) FROM candidates c{where}", values
+            ).fetchone()[0]
+        )
+        sort_columns = {
+            "id": ("c.id",),
+            "word": ("c.normalized_word", "c.id"),
+            "language": ("c.language", "c.normalized_word", "c.id"),
+            "category": ("COALESCE(c.category, '')", "c.normalized_word", "c.id"),
+            "status": ("c.status", "c.normalized_word", "c.id"),
+            "eligible": ("c.release_eligible", "c.normalized_word", "c.id"),
+        }
+        try:
+            columns = sort_columns[sort_field]
+        except KeyError as error:
+            raise ValueError(f"unsupported candidate sort: {sort_field}") from error
+        direction = "DESC" if reverse else "ASC"
+        order = ", ".join(f"{column} {direction}" for column in columns)
         rows = self._connection.execute(
-            f"SELECT * FROM candidates{where} ORDER BY id", values
+            f"SELECT {self._candidate_projection()} FROM candidates c{where} "
+            f"ORDER BY {order} LIMIT ? OFFSET ?",
+            (*values, limit, offset),
         ).fetchall()
-        if query:
-            folded = query.casefold()
-            rows = [row for row in rows if folded in f"{row['word']} {row['id']}".casefold()]
-        total = len(rows)
-        selected = rows[offset : offset + limit]
-        return IndexQueryPage(tuple(self._row(row) for row in selected), total, offset, limit)
+        return IndexQueryPage(tuple(self._row(row) for row in rows), total, offset, limit)
+
+    def list_languages(self) -> tuple[str, ...]:
+        rows = self._connection.execute(
+            "SELECT DISTINCT language FROM candidates ORDER BY language"
+        ).fetchall()
+        return tuple(str(row[0]) for row in rows)
+
+    def list_categories(self) -> tuple[str, ...]:
+        rows = self._connection.execute(
+            "SELECT DISTINCT category FROM candidates WHERE category IS NOT NULL ORDER BY category"
+        ).fetchall()
+        return tuple(str(row[0]) for row in rows)
 
     def count_candidates(self, **filters: Any) -> int:
         return self.search_candidates(limit=1, **filters).total
@@ -214,91 +336,84 @@ class RepositoryIndex:
 
     def get_reviews(self, candidate_id: str) -> tuple[ReviewRecord, ...]:
         rows = self._connection.execute(
-            "SELECT record_json FROM reviews WHERE candidate_id=? ORDER BY reviewed_at, id",
+            "SELECT record_json FROM reviews WHERE candidate_id=? "
+            "ORDER BY ISO_TIMESTAMP(reviewed_at), id",
             (candidate_id,),
         ).fetchall()
         return tuple(ReviewRecord.model_validate_json(row[0]) for row in rows)
 
     def get_dashboard_statistics(self) -> dict[str, Any]:
-        candidate_rows = self._connection.execute(
-            "SELECT * FROM candidates ORDER BY language, normalized_word, id"
-        ).fetchall()
-        candidates = [self._row(row) for row in candidate_rows]
-        provenance_counts = Counter(
-            row[0]
-            for row in self._connection.execute(
-                "SELECT candidate_id FROM provenance ORDER BY candidate_id, id"
+        def grouped(expression: str, *, table: str = "candidates") -> dict[str, int]:
+            rows = self._connection.execute(
+                f"SELECT {expression}, COUNT(*) FROM {table} "
+                f"GROUP BY {expression} ORDER BY {expression}"
             ).fetchall()
+            return {str(row[0]): int(row[1]) for row in rows}
+
+        statuses = grouped("status")
+        total = int(self._connection.execute("SELECT COUNT(*) FROM candidates").fetchone()[0])
+        eligible = int(
+            self._connection.execute(
+                "SELECT COUNT(*) FROM candidates WHERE release_eligible=1"
+            ).fetchone()[0]
         )
-        review_rows = self._connection.execute(
-            "SELECT candidate_id, record_json FROM reviews ORDER BY candidate_id, reviewed_at, id"
+        latest_review = (
+            "(SELECT r.record_json FROM reviews r WHERE r.candidate_id=c.id "
+            "ORDER BY ISO_TIMESTAMP(r.reviewed_at) DESC, r.id DESC LIMIT 1)"
+        )
+        review_time_rows = self._connection.execute(
+            "SELECT c.submitted_at, r.reviewed_at FROM reviews r "
+            "JOIN candidates c ON c.id=r.candidate_id "
+            "WHERE c.submitted_at IS NOT NULL "
+            "ORDER BY c.language, c.normalized_word, c.id, ISO_TIMESTAMP(r.reviewed_at), r.id"
         ).fetchall()
-        reviews_by_candidate: dict[str, list[ReviewRecord]] = {}
-        for row in review_rows:
-            reviews_by_candidate.setdefault(row[0], []).append(
-                ReviewRecord.model_validate_json(row[1])
-            )
-        statuses = Counter(item.candidate.status.value for item in candidates)
-        review_times: list[float] = []
-        for item in candidates:
-            submitted = item.candidate.submitted_at
-            if submitted is None:
-                continue
-            for review in reviews_by_candidate.get(item.candidate.id, ()):
-                review_times.append((review.reviewed_at - submitted).total_seconds())
+        review_times = [
+            (
+                datetime.fromisoformat(str(reviewed_at)) - datetime.fromisoformat(str(submitted_at))
+            ).total_seconds()
+            for submitted_at, reviewed_at in review_time_rows
+        ]
         return {
-            "total_candidates": len(candidates),
-            "languages": dict(
-                sorted(Counter(item.candidate.language for item in candidates).items())
+            "total_candidates": total,
+            "languages": grouped("language"),
+            "categories": grouped("COALESCE(category, 'uncategorized')"),
+            "statuses": statuses,
+            "approved": statuses.get("approved", 0),
+            "pending_reviews": statuses.get("submitted", 0) + statuses.get("needs_review", 0),
+            "flagged": int(
+                self._connection.execute(
+                    f"SELECT COUNT(*) FROM candidates c WHERE "
+                    f"JSON_ARRAY_LENGTH({latest_review}, '$.flags') > 0"
+                ).fetchone()[0]
             ),
-            "categories": dict(
-                sorted(
-                    Counter(
-                        item.candidate.category or "uncategorized" for item in candidates
-                    ).items()
-                )
+            "release_eligible": eligible,
+            "release_blocked": total - eligible,
+            "provenance_missing": int(
+                self._connection.execute(
+                    "SELECT COUNT(*) FROM candidates c WHERE NOT EXISTS "
+                    "(SELECT 1 FROM provenance p WHERE p.candidate_id=c.id)"
+                ).fetchone()[0]
             ),
-            "statuses": dict(sorted(statuses.items())),
-            "approved": statuses["approved"],
-            "pending_reviews": sum(
-                item.candidate.status.value in {"submitted", "needs_review"} for item in candidates
+            "duplicate_warnings": int(
+                self._connection.execute(
+                    "SELECT COUNT(*) FROM candidates WHERE eligibility_reasons LIKE '%duplicate%'"
+                ).fetchone()[0]
             ),
-            "flagged": sum(
-                bool(reviews_by_candidate.get(item.candidate.id))
-                and bool(reviews_by_candidate[item.candidate.id][-1].flags)
-                for item in candidates
+            "blocklist_matches": int(
+                self._connection.execute(
+                    "SELECT COUNT(*) FROM candidates WHERE blocklist_match=1"
+                ).fetchone()[0]
             ),
-            "release_eligible": sum(item.release_eligible for item in candidates),
-            "release_blocked": sum(not item.release_eligible for item in candidates),
-            "provenance_missing": sum(
-                not provenance_counts[item.candidate.id] for item in candidates
-            ),
-            "duplicate_warnings": sum(
-                "duplicate" in reason for item in candidates for reason in item.eligibility_reasons
-            ),
-            "blocklist_matches": sum(item.blocklist_match for item in candidates),
             "license_distribution": dict(
                 sorted(
-                    Counter(
-                        "eligible" if item.candidate.is_license_eligible else "ineligible"
-                        for item in candidates
-                    ).items()
+                    {
+                        ("eligible" if key == "1" else "ineligible"): value
+                        for key, value in grouped("license_eligible").items()
+                    }.items()
                 )
             ),
-            "contributors": dict(
-                sorted(
-                    Counter(item.candidate.submitted_by or "unknown" for item in candidates).items()
-                )
-            ),
-            "reviewers": dict(
-                sorted(
-                    Counter(
-                        review.reviewer_id
-                        for reviews in reviews_by_candidate.values()
-                        for review in reviews
-                    ).items()
-                )
-            ),
+            "contributors": grouped("COALESCE(submitted_by, 'unknown')"),
+            "reviewers": grouped("JSON_EXTRACT(record_json, '$.reviewer_id')", table="reviews"),
             "average_review_time_seconds": (
                 sum(review_times) / len(review_times) if review_times else None
             ),
@@ -312,8 +427,9 @@ class RepositoryIndex:
             return ()
         prefix = candidate.normalized_word[:2]
         rows = self._connection.execute(
-            "SELECT * FROM candidates WHERE language=? AND id<>? "
-            "AND normalized_word LIKE ? ORDER BY normalized_word, id LIMIT ?",
+            f"SELECT {self._candidate_projection()} FROM candidates c "
+            "WHERE c.language=? AND c.id<>? "
+            "AND c.normalized_word LIKE ? ORDER BY c.normalized_word, c.id LIMIT ?",
             (candidate.candidate.language, candidate_id, prefix + "%", limit),
         ).fetchall()
         return tuple(self._row(row) for row in rows)

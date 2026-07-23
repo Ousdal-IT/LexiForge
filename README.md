@@ -62,6 +62,12 @@ use its canonical immutable snapshot. Build the index outside canonical data wit
 `uv run lexiforge index build --data-root ../LexiForge-Data/data`; see
 `docs/repository-index.md` and `docs/performance.md`.
 
+v0.7.0 integrates that index into the Textual workbench through a backend-neutral query layer.
+Valid indexes provide bounded candidate pages, indexed filtering/search/statistics and lazy detail
+history; missing or invalid indexes use the complete canonical fallback. Mutations still go through
+`EditorialService`, immediately invalidate indexed reads, and may trigger a safe background full
+rebuild. See `docs/workbench-index-integration.md`.
+
 ## Development
 
 ```bash

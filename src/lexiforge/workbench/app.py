@@ -1,5 +1,8 @@
+from contextlib import suppress
+from pathlib import Path
 from typing import ClassVar
 
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal
@@ -8,10 +11,10 @@ from textual.widgets import DataTable, Footer, Input, Select, Static
 from ..editorial import ChangeSet, EditorialError, EditorialService
 from ..editorial.operations import EditorialOperation
 from ..editorial.preview import render_text
-from ..index import RepositoryIndex
+from ..index import RepositoryIndexBuilder, RepositoryIndexError
 from ..models import CandidateStatus
 from ..repository import DatasetRepository
-from .model import CandidateFilter, CandidateView, RepositorySnapshot
+from .model import CandidateFilter, CandidateView
 from .power_screens import (
     BatchReviewScreen,
     BlocklistEditorScreen,
@@ -20,6 +23,14 @@ from .power_screens import (
     DuplicateAssistantScreen,
     SimilarityScreen,
     StatisticsScreen,
+)
+from .query import (
+    CandidatePage,
+    CandidateQuery,
+    CandidateSummary,
+    CanonicalWorkbenchView,
+    WorkbenchRepositoryView,
+    open_workbench_view,
 )
 from .screens import (
     AddCandidateScreen,
@@ -30,13 +41,7 @@ from .screens import (
     SupersedeScreen,
     WithdrawScreen,
 )
-from .tools import (
-    SavedSearchStore,
-    SessionState,
-    SessionStore,
-    repository_statistics,
-    similarity_browser,
-)
+from .tools import SavedSearchStore, SessionState, SessionStore
 
 
 class EditorialWorkbench(App[None]):
@@ -67,6 +72,11 @@ class EditorialWorkbench(App[None]):
         Binding("v", "import_review", "Import review", show=True),
         Binding("x", "statistics", "Statistics", show=True),
         Binding("u", "duplicates", "Duplicates", show=True),
+        Binding("alt+left", "previous_page", "Previous page", show=True),
+        Binding("alt+right", "next_page", "Next page", show=True),
+        Binding("ctrl+home", "first_page", "First page", show=False),
+        Binding("ctrl+end", "last_page", "Last page", show=False),
+        Binding("ctrl+i", "build_index", "Build index", show=True),
     ]
 
     CSS = """
@@ -86,12 +96,14 @@ class EditorialWorkbench(App[None]):
     #status-bar { height: 1; padding: 0 1; background: $boost; }
     """
 
-    def __init__(self, repository: DatasetRepository):
+    PAGE_SIZE = 50
+
+    def __init__(self, repository: DatasetRepository, index_root: Path | None = None):
         super().__init__()
         self.repository = repository
+        self.index_root = index_root
         self.service = EditorialService(repository)
-        self.index_status = RepositoryIndex.status(repository)
-        self.snapshot = RepositorySnapshot.load(repository)
+        self.view: WorkbenchRepositoryView = open_workbench_view(repository, index_root)
         self.session_store = SessionStore()
         self.saved_search_store = SavedSearchStore()
         persisted = self.session_store.load()
@@ -101,9 +113,16 @@ class EditorialWorkbench(App[None]):
         self.pending_changeset: ChangeSet | None = None
         self.selected_id: str | None = self._persisted.selected_candidate
         self.selected_ids: set[str] = set()
-        self._visible: tuple[CandidateView, ...] = ()
+        self._visible: tuple[CandidateSummary, ...] = ()
+        self._page = CandidatePage((), 0, self._persisted.page_offset, self.PAGE_SIZE)
+        self._selected_details: CandidateView | None = None
         self._sort_field = self._persisted.sort_field
         self._sort_reverse = self._persisted.sort_reverse
+        self._page_offset = self._persisted.page_offset
+        self._rendering_table = False
+        self._repository_generation = 0
+        self._index_build_state: str | None = None
+        self._index_build_progress: tuple[str, int, int] | None = None
 
     def compose(self) -> ComposeResult:
         yield Static(self._title_text(), id="title-bar")
@@ -115,12 +134,12 @@ class EditorialWorkbench(App[None]):
                 id="search",
             )
             yield Select(
-                [("All languages", "all"), *[(item, item) for item in self.snapshot.languages]],
+                [("All languages", "all"), *[(item, item) for item in self.view.languages]],
                 value=self._persisted.language or "all",
                 id="language-filter",
             )
             yield Select(
-                [("All categories", "all"), *[(item, item) for item in self.snapshot.categories]],
+                [("All categories", "all"), *[(item, item) for item in self.view.categories]],
                 value=self._persisted.category or "all",
                 id="category-filter",
             )
@@ -213,42 +232,61 @@ class EditorialWorkbench(App[None]):
             blocklist_state=None if blocklist_state == "all" else blocklist_state,
         )
 
-    def refresh_candidates(self) -> None:
-        items = list(self.snapshot.filtered(self.current_filter()))
-        sorters = {
-            "word": lambda item: (item.normalized_word, item.candidate.id),
-            "language": lambda item: (item.candidate.language, item.normalized_word),
-            "category": lambda item: (item.candidate.category or "", item.normalized_word),
-            "status": lambda item: (item.candidate.status.value, item.normalized_word),
-            "eligible": lambda item: (item.release_eligible, item.normalized_word),
-        }
-        items.sort(key=sorters[self._sort_field], reverse=self._sort_reverse)
-        self._visible = tuple(items)
-        table = self.query_one("#candidate-table", DataTable)
-        table.clear()
-        for item in self._visible:
-            candidate = item.candidate
-            table.add_row(
-                candidate.word,
-                candidate.language,
-                candidate.category or "—",
-                candidate.status.value,
-                "yes" if item.release_eligible else "no",
-                key=candidate.id,
+    def refresh_candidates(self, *, reset_page: bool = False) -> None:
+        if reset_page:
+            self._page_offset = 0
+        query = CandidateQuery(
+            filters=self.current_filter(),
+            sort=self._sort_field,  # type: ignore[arg-type]
+            reverse=self._sort_reverse,
+            offset=self._page_offset,
+            limit=self.PAGE_SIZE,
+        )
+        page = self.view.list_candidates(query)
+        if page.total_count and page.offset >= page.total_count:
+            self._page_offset = ((page.total_count - 1) // page.limit) * page.limit
+            page = self.view.list_candidates(
+                CandidateQuery(
+                    filters=query.filters,
+                    sort=query.sort,
+                    reverse=query.reverse,
+                    offset=self._page_offset,
+                    limit=query.limit,
+                )
             )
+        self._page = page
+        self._visible = page.items
+        table = self.query_one("#candidate-table", DataTable)
+        self._rendering_table = True
+        try:
+            table.clear()
+            for item in self._visible:
+                candidate = item.candidate
+                table.add_row(
+                    candidate.word,
+                    candidate.language,
+                    candidate.category or "—",
+                    candidate.status.value,
+                    "yes" if item.release_eligible else "no",
+                    key=candidate.id,
+                )
+        finally:
+            self._rendering_table = False
         if self._visible:
-            selected = self.snapshot.candidate(self.selected_id) if self.selected_id else None
-            if selected not in self._visible:
-                selected = self._visible[0]
+            selected = next(
+                (item for item in self._visible if item.candidate.id == self.selected_id),
+                self._visible[0],
+            )
             self.select_candidate(selected)
         else:
             self.selected_id = None
+            self._selected_details = None
             self.query_one("#candidate-details", Static).update("No matching candidates")
         self.update_status()
         self.refresh_dashboard()
 
     def refresh_dashboard(self) -> None:
-        stats = repository_statistics(self.snapshot)
+        stats = self.view.get_dashboard_statistics()
         self.query_one("#dashboard", Static).update(
             " · ".join(
                 (
@@ -264,14 +302,23 @@ class EditorialWorkbench(App[None]):
             )
         )
 
-    def select_candidate(self, item: CandidateView) -> None:
-        self.selected_id = item.candidate.id
-        candidate = item.candidate
-        reasons = ", ".join(item.eligibility_reasons) or "none"
+    def select_candidate(self, item: CandidateSummary | CandidateView) -> None:
+        candidate_id = item.candidate.id
+        details = self.view.get_candidate(candidate_id)
+        if details is None:
+            if self.selected_id == candidate_id:
+                self.selected_id = None
+                self._selected_details = None
+            self.query_one("#candidate-details", Static).update("Candidate no longer exists")
+            return
+        self.selected_id = candidate_id
+        self._selected_details = details
+        candidate = details.candidate
+        reasons = ", ".join(details.eligibility_reasons) or "none"
         provenance = (
             "\n".join(
                 f"  {record.source_kind.value}: {record.license_basis}"
-                for record in item.provenance
+                for record in details.provenance
             )
             or "  none"
         )
@@ -279,7 +326,7 @@ class EditorialWorkbench(App[None]):
             "\n".join(
                 f"  {record.reviewed_at.isoformat()} · {record.decision.value} · "
                 f"{record.reviewer_id}"
-                for record in item.reviews[-5:]
+                for record in details.reviews[-5:]
             )
             or "  none"
         )
@@ -287,12 +334,12 @@ class EditorialWorkbench(App[None]):
             "\n".join(
                 (
                     f"Word: {candidate.word}",
-                    f"Normalized: {item.normalized_word}",
+                    f"Normalized: {details.normalized_word}",
                     f"Language: {candidate.language}",
                     f"Category: {candidate.category or '—'}",
                     f"UUID: {candidate.id}",
                     f"Status: {candidate.status.value}",
-                    f"Release eligible: {'yes' if item.release_eligible else 'no'}",
+                    f"Release eligible: {'yes' if details.release_eligible else 'no'}",
                     f"Eligibility warnings: {reasons}",
                     "",
                     "Provenance:",
@@ -306,11 +353,23 @@ class EditorialWorkbench(App[None]):
         self.update_status()
 
     def selected_candidate(self) -> CandidateView | None:
-        return self.snapshot.candidate(self.selected_id) if self.selected_id else None
+        if self.selected_id is None:
+            return None
+        if (
+            self._selected_details is None
+            or self._selected_details.candidate.id != self.selected_id
+        ):
+            self._selected_details = self.view.get_candidate(self.selected_id)
+        return self._selected_details
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if self._rendering_table or not self.query("#candidate-details"):
+            return
         candidate_id = str(event.row_key.value)
-        item = self.snapshot.candidate(candidate_id)
+        item = next(
+            (item for item in self._visible if item.candidate.id == candidate_id),
+            None,
+        )
         if item:
             self.select_candidate(item)
 
@@ -322,15 +381,19 @@ class EditorialWorkbench(App[None]):
         else:
             self._sort_field = field
             self._sort_reverse = False
-        self.refresh_candidates()
+        self.refresh_candidates(reset_page=True)
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        if not self.query("#candidate-table"):
+            return
         if event.input.id and (event.input.id == "search" or event.input.id.endswith("-filter")):
-            self.refresh_candidates()
+            self.refresh_candidates(reset_page=True)
 
     def on_select_changed(self, event: Select.Changed) -> None:
+        if not self.query("#candidate-table"):
+            return
         if event.select.id and event.select.id.endswith("-filter"):
-            self.refresh_candidates()
+            self.refresh_candidates(reset_page=True)
 
     def prepare_operation(self, operation: EditorialOperation | None) -> None:
         if operation is None:
@@ -347,7 +410,7 @@ class EditorialWorkbench(App[None]):
         self.update_status("preview valid")
 
     def action_add(self) -> None:
-        language = self.current_filter().language or self.snapshot.languages[0]
+        language = self.current_filter().language or self.view.languages[0]
         self.push_screen(AddCandidateScreen(language), self.prepare_operation)
 
     def action_edit(self) -> None:
@@ -385,7 +448,13 @@ class EditorialWorkbench(App[None]):
             return
         operation = self.pending_changeset.operation
         self.pending_changeset = None
-        self.reload_repository(message=f"Applied {operation}")
+        self._repository_generation += 1
+        self._activate_canonical(
+            index_state="stale",
+            reason="canonical mutation requires a full index rebuild",
+        )
+        self.reload_repository(message=f"Applied {operation} · canonical fallback active")
+        self.rebuild_index()
 
     def action_cancel(self) -> None:
         self.pending_changeset = None
@@ -402,26 +471,38 @@ class EditorialWorkbench(App[None]):
         self.update_status()
 
     def action_compare(self) -> None:
-        selected = [self.snapshot.candidate(item) for item in sorted(self.selected_ids)]
+        selected = [self.view.get_candidate(item) for item in sorted(self.selected_ids)]
         if len(selected) == 2 and selected[0] and selected[1]:
             self.push_screen(ComparisonScreen(selected[0], selected[1]))
         else:
             self.query_one("#preview", Static).update("Select exactly two candidates to compare.")
 
     def action_similarity(self) -> None:
-        self.push_screen(
-            SimilarityScreen(similarity_browser(self.snapshot, self.current_filter().language))
-        )
+        if self.selected_id is None:
+            self.query_one("#preview", Static).update("Select a candidate for similarity review.")
+            return
+        self.push_screen(SimilarityScreen(self.view.find_similarity_candidates(self.selected_id)))
 
     def action_statistics(self) -> None:
-        self.push_screen(StatisticsScreen(repository_statistics(self.snapshot)))
+        self.push_screen(StatisticsScreen(self.view.get_dashboard_statistics()))
 
     def action_duplicates(self) -> None:
-        self.push_screen(DuplicateAssistantScreen(similarity_browser(self.snapshot)))
+        selected = self.selected_candidate()
+        if selected is None:
+            self.query_one("#preview", Static).update("Select a candidate for duplicate lookup.")
+            return
+        self.push_screen(
+            DuplicateAssistantScreen(
+                self.view.find_duplicates(
+                    selected.candidate.language,
+                    selected.normalized_word,
+                )
+            )
+        )
 
     def action_blocklist(self) -> None:
         self.push_screen(
-            BlocklistEditorScreen(self.current_filter().language or self.snapshot.languages[0]),
+            BlocklistEditorScreen(self.current_filter().language or self.view.languages[0]),
             self.prepare_operation,
         )
 
@@ -438,7 +519,7 @@ class EditorialWorkbench(App[None]):
         source = self.query_one("#source-filter", Select)
         source.value = "import"
         self.query_one("#status-filter", Select).value = "submitted"
-        self.refresh_candidates()
+        self.refresh_candidates(reset_page=True)
 
     def action_reload(self) -> None:
         self.reload_repository(message="Repository reloaded")
@@ -446,18 +527,111 @@ class EditorialWorkbench(App[None]):
     def reload_repository(self, message: str = "") -> None:
         try:
             self.service = EditorialService(self.repository)
-            self.snapshot = RepositorySnapshot.load(self.repository)
-            self.index_status = RepositoryIndex.status(self.repository)
+            replacement = open_workbench_view(self.repository, self.index_root)
+            self.view.close()
+            self.view = replacement
         except EditorialError as error:
             self.query_one("#preview", Static).update(f"Editorial error: {error}")
             self.update_status("reload failed")
             return
         self.pending_changeset = None
+        self._selected_details = None
+        self.selected_ids = {
+            item for item in self.selected_ids if self.view.get_candidate(item) is not None
+        }
         self.refresh_candidates()
         if message:
             self.query_one("#preview", Static).update(message)
         self.update_status(message)
         self.refresh_dashboard()
+
+    def _activate_canonical(self, *, index_state: str, reason: str | None = None) -> None:
+        previous = self.view
+        self.view = CanonicalWorkbenchView(
+            self.repository,
+            index_state=index_state,
+            reason=reason,
+        )
+        previous.close()
+        self._selected_details = None
+
+    @work(thread=True, exclusive=True, group="index-build", exit_on_error=False)
+    def rebuild_index(self) -> None:
+        generation = self._repository_generation
+        self._index_build_state = "building"
+        try:
+            RepositoryIndexBuilder(self.repository, self.index_root).build(
+                progress=self._report_index_progress
+            )
+        except (RepositoryIndexError, OSError, RuntimeError) as error:
+            with suppress(RuntimeError):
+                self.call_from_thread(self._finish_index_build, generation, str(error))
+            return
+        with suppress(RuntimeError):
+            self.call_from_thread(self._finish_index_build, generation, None)
+
+    def _finish_index_build(self, generation: int, error: str | None) -> None:
+        if generation != self._repository_generation or not self.query("#status-bar"):
+            return
+        if error is not None:
+            self._index_build_state = "failed"
+            self._index_build_progress = None
+            self.update_status("index rebuild failed · canonical fallback active")
+            return
+        replacement = open_workbench_view(self.repository, self.index_root)
+        if replacement.status.kind != "indexed":
+            replacement.close()
+            self._index_build_state = "failed"
+            self._index_build_progress = None
+            self.update_status("index verification failed · canonical fallback active")
+            return
+        self.view.close()
+        self.view = replacement
+        self._index_build_state = None
+        self._index_build_progress = None
+        self._selected_details = None
+        self.refresh_candidates()
+        self.update_status("rebuilt index active")
+
+    def action_build_index(self) -> None:
+        if self._index_build_state == "building":
+            self.update_status("index build already running")
+            return
+        self.rebuild_index()
+        self.update_status("index building · editorial access remains available")
+
+    def _report_index_progress(self, language: str, completed: int, total: int) -> None:
+        with suppress(RuntimeError):
+            self.call_from_thread(
+                self._set_index_progress,
+                language,
+                completed,
+                total,
+            )
+
+    def _set_index_progress(self, language: str, completed: int, total: int) -> None:
+        self._index_build_progress = (language, completed, total)
+        self.update_status(f"index building {language} {completed}/{total}")
+
+    def action_next_page(self) -> None:
+        if self._page.has_next:
+            self._page_offset += self.PAGE_SIZE
+            self.refresh_candidates()
+
+    def action_previous_page(self) -> None:
+        if self._page.has_previous:
+            self._page_offset = max(0, self._page_offset - self.PAGE_SIZE)
+            self.refresh_candidates()
+
+    def action_first_page(self) -> None:
+        if self._page_offset:
+            self._page_offset = 0
+            self.refresh_candidates()
+
+    def action_last_page(self) -> None:
+        if self._page.total_count:
+            self._page_offset = ((self._page.total_count - 1) // self.PAGE_SIZE) * self.PAGE_SIZE
+            self.refresh_candidates()
 
     def action_focus_search(self) -> None:
         self.query_one("#search", Input).focus()
@@ -491,10 +665,13 @@ class EditorialWorkbench(App[None]):
         selection = self.selected_id or "none"
         dirty = "preview" if self.pending_changeset else "clean"
         suffix = f" · {message}" if message else ""
+        backend = (
+            "Index building" if self._index_build_state == "building" else self.view.status.label
+        )
         self.query_one("#status-bar", Static).update(
             f"{self.repository.root} · language={language} · "
-            f"selection={selection} · {dirty} · {len(self._visible)} shown · "
-            f"index={self.index_status.state}{suffix}"
+            f"selection={selection} · {dirty} · {self._page.total_count} matches · "
+            f"page={self._page.page_number}/{self._page.page_count} · backend={backend}{suffix}"
         )
 
     def on_unmount(self) -> None:
@@ -512,5 +689,7 @@ class EditorialWorkbench(App[None]):
                 sort_field=self._sort_field,
                 sort_reverse=self._sort_reverse,
                 selected_candidate=self.selected_id,
+                page_offset=self._page_offset,
             )
         )
+        self.view.close()

@@ -1,8 +1,8 @@
 # Editorial power tools
 
-M3.3 extends `lexiforge editor` for large local curation sessions. The workbench keeps one
-immutable repository snapshot for browsing and refreshes it only on `Ctrl-R` or after a successful
-apply. Session and saved-search files live outside the dataset root.
+M3.3 defines the editorial power tools consumed by `lexiforge editor`. v0.7.0 prefers the
+disposable index for bounded reads and keeps the immutable repository snapshot as the complete
+canonical fallback. Session and saved-search files live outside the dataset root.
 
 ## Dashboard and statistics
 
@@ -33,8 +33,8 @@ submitted candidates for rapid triage.
 
 ## Similarity and duplicates
 
-`i` opens the similarity browser with a deterministic distance threshold. `u` opens the duplicate
-resolution assistant. Similarity findings are advisory and never approve, reject, withdraw, or
+`i` opens the selected-candidate similarity browser with a deterministic distance threshold. `u`
+looks up normalized duplicates for the selected candidate. Similarity findings are advisory and never approve, reject, withdraw, or
 supersede automatically. `c` compares exactly two selected candidates and highlights differences in
 word, normalization, category, status, eligibility, provenance, and review history. Final actions
 continue through the ordinary service-backed operation forms.
@@ -48,11 +48,10 @@ never rewritten by the editor. Schema and licensing rules remain those of the re
 
 ## Session and performance
 
-The workbench persists repository, filters, sort order, and selected candidate outside the dataset.
-No state file is written into `data/`. Filtering and search are in-memory operations over the
-snapshot; similarity is calculated only when its browser is opened. This keeps ordinary browsing
-responsive for large repositories, while an all-pairs similarity view remains an explicitly
-expensive operation.
+The workbench persists repository, filters, sort order, selected candidate and safe page offset
+outside the dataset. No state file is written into `data/`. Indexed filtering and search return
+bounded pages; canonical fallback uses one immutable snapshot. Similarity is calculated only when
+the selected-candidate browser is opened, and remains explicitly advisory and bounded.
 
 All writes—single, batch, review, provenance, and blocklist—still use `EditorialService`. The
 workbench has no CSV writer and no second moderation or eligibility implementation. Similarity is

@@ -11,6 +11,18 @@ from ..profiles import load_policy, load_profiles
 from ..repository import DatasetRepository
 
 
+def _within_dates(
+    value: datetime | None,
+    after: datetime | None,
+    before: datetime | None,
+) -> bool:
+    if after is None and before is None:
+        return True
+    if value is None:
+        return False
+    return (after is None or value >= after) and (before is None or value <= before)
+
+
 @dataclass(frozen=True, slots=True)
 class CandidateView:
     candidate: WordCandidate
@@ -82,22 +94,8 @@ class CandidateFilter:
                 self.license_eligible is None
                 or candidate.is_license_eligible == self.license_eligible
             )
-            and (
-                self.created_after is None
-                or (candidate.submitted_at or datetime.min) >= self.created_after
-            )
-            and (
-                self.created_before is None
-                or (candidate.submitted_at or datetime.max) <= self.created_before
-            )
-            and (
-                self.modified_after is None
-                or (candidate.reviewed_at or datetime.min) >= self.modified_after
-            )
-            and (
-                self.modified_before is None
-                or (candidate.reviewed_at or datetime.max) <= self.modified_before
-            )
+            and _within_dates(candidate.submitted_at, self.created_after, self.created_before)
+            and _within_dates(candidate.reviewed_at, self.modified_after, self.modified_before)
             and (
                 self.similarity_warning is None
                 or item.similarity_warning == self.similarity_warning

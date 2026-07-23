@@ -43,3 +43,23 @@ dashboard parity before reporting:
 The shared development environment produced substantial timing variance, so these measurements are
 a correctness smoke benchmark rather than evidence of a stable speedup. The 2,000-record synthetic
 regression test provides bounded large-repository coverage without asserting wall-clock timing.
+
+## v0.7.0 workbench measurement
+
+One deterministic local run of `scripts/benchmark-workbench.py --data-root data --count 10000` on
+Linux 6.6.119 x86-64 with Python 3.12.13 produced 10,072 candidates (the bundled 72 plus 10,000
+synthetic `nb` candidates):
+
+| Measurement | Observed value |
+| --- | ---: |
+| Canonical workbench preparation | 7.729307 s |
+| Canonical peak traced memory | 23,460,299 bytes |
+| Full verified index build | 6.222470 s |
+| Indexed bounded first page | 0.010948 s |
+| Indexed search page | 0.052728 s |
+| Indexed filter page | 0.025903 s |
+| Indexed dashboard | 0.054866 s |
+
+Every indexed result was bounded to 50 rows, and the benchmark verified indexed candidate counts
+and dashboard values. These are single-machine engineering measurements, not universal latency or
+memory guarantees; no general speedup claim is made from this sample.

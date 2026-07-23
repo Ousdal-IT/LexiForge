@@ -193,6 +193,7 @@ class SessionState:
     sort_field: str = "word"
     sort_reverse: bool = False
     selected_candidate: str | None = None
+    page_offset: int = 0
 
 
 class SessionStore:

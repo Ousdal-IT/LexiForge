@@ -10,6 +10,7 @@ from textual.widgets import Button, Input, Label, Select, Static
 from ..editorial.operations import BatchReviewOperation, BlocklistEditOperation, EditorialOperation
 from ..models import CriterionValue, ReviewCriteria, ReviewDecision, SimilarityFinding
 from .model import CandidateView
+from .query import CandidateSummary
 from .tools import RepositoryStatistics
 
 
@@ -116,8 +117,14 @@ class SimilarityScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
-class DuplicateAssistantScreen(SimilarityScreen):
+class DuplicateAssistantScreen(ModalScreen[None]):
     """Advisory duplicate triage; final actions remain explicit service operations."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "close", "Close")]
+
+    def __init__(self, candidates: tuple[CandidateSummary, ...]):
+        super().__init__()
+        self.candidates = candidates
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -127,8 +134,22 @@ class DuplicateAssistantScreen(SimilarityScreen):
                 "service-backed withdraw, supersede, flag, or keep-both workflow.",
                 id="duplicate-guidance",
             )
-            yield Static(self.render_findings(1), id="similarity")
+            yield Static(
+                "\n".join(
+                    f"{item.candidate.language}: {item.candidate.word} · "
+                    f"{item.candidate.id} · {item.candidate.status.value}"
+                    for item in self.candidates
+                )
+                or "No normalized duplicates",
+                id="duplicates",
+            )
             yield Button("Close", id="close")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
 
 
 class ComparisonScreen(ModalScreen[None]):

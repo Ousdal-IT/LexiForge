@@ -67,7 +67,7 @@ def test_workbench_renders_browser_details_and_status() -> None:
         async with application.run_test(size=(140, 45)) as pilot:
             await pilot.pause()
             table = application.query_one("#candidate-table", DataTable)
-            assert table.row_count == len(application.snapshot.candidates)
+            assert table.row_count == min(application.PAGE_SIZE, application._page.total_count)
             assert application.selected_id is not None
             assert "UUID:" in str(application.query_one("#candidate-details", Static).render())
             status = str(application.query_one("#status-bar", Static).render())
@@ -126,7 +126,7 @@ def test_edit_preview_uses_existing_renderer_and_does_not_write(tmp_path: Path) 
     async def scenario() -> None:
         application = EditorialWorkbench(repository)
         async with application.run_test(size=(140, 45)) as pilot:
-            item = application.snapshot.candidate("10000000-0000-4000-8000-000000000005")
+            item = application.view.get_candidate("10000000-0000-4000-8000-000000000005")
             assert item is not None
             application.select_candidate(item)
             application.action_edit()
@@ -152,7 +152,7 @@ def test_ctrl_a_applies_exact_pending_changeset_to_external_repository(tmp_path:
     async def scenario() -> None:
         application = EditorialWorkbench(repository)
         async with application.run_test(size=(140, 45)) as pilot:
-            item = application.snapshot.candidate(candidate_id)
+            item = application.view.get_candidate(candidate_id)
             assert item is not None
             application.select_candidate(item)
             application.action_edit()

@@ -11,7 +11,7 @@ mutation paths or weakening canonical dataset validation.
 | ✅ | v0.5.0 | Textual Workbench |
 | ✅ | v0.5.1 | Editorial Power Tools |
 | ✅ | v0.6.0 | Repository Index & Hardening |
-| Planned | v0.7.0 | Workbench Performance |
+| ✅ | v0.7.0 | Workbench Performance |
 | Planned | v0.8.0 | PySide6 Desktop Workbench |
 | Planned | v0.9.0 | Web API / Cloudflare Workers |
 | Planned | v1.0.0 | Stable Editorial Platform |

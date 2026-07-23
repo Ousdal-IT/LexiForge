@@ -10,7 +10,7 @@ from .errors import ConfigurationError
 from .models import LanguageCode, StrictModel
 
 DATASET_SCHEMA_VERSION = 1
-TOOL_VERSION = "0.1.0"
+TOOL_VERSION = "0.7.0"
 
 
 class Compatibility(StrictModel):
