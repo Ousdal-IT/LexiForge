@@ -131,6 +131,32 @@ class EditorialService:
         """Resolve a canonical candidate identifier across configured languages."""
         return EditorialContext(self.repository).candidate(candidate_id)
 
+    def lookup_candidate(
+        self, identifier_or_word: str, language: str | None = None
+    ) -> WordCandidate:
+        """Resolve a UUID, or an exact normalized word when a language is explicit."""
+        context = EditorialContext(self.repository)
+        try:
+            return context.candidate(identifier_or_word)
+        except MutationRejectedError:
+            if language is None:
+                raise
+        normalized = context.normalize(language, identifier_or_word)
+        matches = [
+            record.candidate
+            for record in load_language_candidates(language, self.repository.root)
+            if context.normalize(language, record.candidate.word) == normalized
+        ]
+        if not matches:
+            raise MutationRejectedError(
+                f"candidate not found for {language}: {identifier_or_word!r}"
+            )
+        if len(matches) > 1:
+            raise MutationRejectedError(
+                f"ambiguous candidate word for {language}: {identifier_or_word!r}"
+            )
+        return matches[0]
+
     def provenance(self, candidate_id: str) -> tuple[ProvenanceRecord, ...]:
         """Return deterministically ordered provenance history for a candidate."""
         return tuple(

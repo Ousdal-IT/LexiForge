@@ -20,4 +20,6 @@ M3.0 adds an editorial service above the dataset and validator layers. Operation
 
 M3.1 supplies immutable operation planners for candidate creation/editing/withdrawal/supersession, provenance addition, and append-only review transitions. CLI commands only collect typed input and render service results. Audit times and identities are explicit, candidate IDs survive edits, normalization and transitions remain centralized, and an applied operation always receives final repository validation.
 
+M3.2 adds a Textual presentation layer. It loads one immutable, read-optimized candidate snapshot per explicit repository reload, while every proposed mutation remains an M3.1 operation passed to `EditorialService`. The preview pane calls the shared renderer verbatim; apply uses the pending validated `ChangeSet`. Textual widgets contain no serializers, normalization rules, moderation rules, or eligibility decisions.
+
 Language behavior is configuration-driven; adding a compatible profile does not change validator logic. M0 deliberately has no persistence service, web framework, accounts, external API, plugin architecture, or semantic classifier.

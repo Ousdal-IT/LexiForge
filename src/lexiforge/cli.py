@@ -222,6 +222,16 @@ def doctor_command(
         typer.echo(f"- {code}: profile version {profile.version}")
 
 
+@app.command("editor")
+def editor_command(
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Launch the full-screen, service-backed editorial workbench."""
+    from .workbench import EditorialWorkbench
+
+    EditorialWorkbench(_repository(data_root)).run()
+
+
 @app.command("validate-repository")
 def validate_repository_command(
     data_root: Annotated[Path | None, typer.Option("--data-root")] = None,

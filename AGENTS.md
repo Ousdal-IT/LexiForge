@@ -21,4 +21,7 @@ LexiForge builds deterministic, multilingual passphrase-wordlist artefacts. M0 i
 - Candidate, provenance, and review commands are thin operation adapters. Audit timestamps and actor IDs are explicit and never inferred; edits never change candidate IDs; review history is append-only and provenance history is preserved.
 - Mutations default to dry-run and require `--apply`. Approval is always human and explicit. Normalize duplicate checks through language profiles, validate the complete repository after apply, and test against temporary copies—never mutate bundled fixtures.
 - Keep terminal/desktop prompting and rendering out of the service layer. Do not introduce TUI or GUI logic into operation planners.
+- The Textual workbench is presentation-only: forms construct existing operation objects, previews use the shared renderer, and apply calls `EditorialService`. Never add CSV writes or duplicate domain rules under `workbench/`.
+- Keep repository browsing responsive by reusing the immutable workbench snapshot until explicit reload. Do not run all-pairs similarity or reparse full datasets on each keystroke.
+- Textual tests run headless against temporary repository copies. Widget tests may inspect presentation behavior but must leave moderation and eligibility rule coverage in the editorial-service tests.
 - Before finishing, run `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src`, `uv run pytest`, `./scripts/check-repository-hygiene.sh`, and `git diff --check`.

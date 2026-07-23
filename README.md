@@ -28,6 +28,7 @@ uv run lexiforge build --language nb --size 16 --allow-development-size --balanc
 uv run lexiforge doctor
 uv run lexiforge validate-repository
 uv run lexiforge validate --data-root ../lexiforge-data/data --all
+uv run lexiforge editor --data-root ../lexiforge-data/data
 ```
 
 The CLI exits with 0 on success, 1 for validation/build failures, and 2 for invalid CLI usage or configuration detected by argument parsing. Expected errors are printed without tracebacks.
@@ -47,6 +48,8 @@ Every data-aware command resolves its dataset-interface root in this order: an e
 ## Editorial service
 
 `lexiforge.editorial` is the UI-independent mutation boundary for every editor. It creates immutable validated `ChangeSet` previews, detects stale repository state, validates proposed content in an isolated repository copy, and applies text files atomically with rollback. M3.1 adds dry-run-first `candidates`, `provenance`, and `review` workflows without moving business rules into the CLI; see `docs/editorial-cli.md` and `docs/editorial-service.md`.
+
+M3.2 adds the preferred full-screen Textual workbench through `lexiforge editor`. It browses and filters a cached read snapshot, renders the existing deterministic previews, and applies only validated service change sets. See `docs/editorial-workbench.md` for workflows and keyboard shortcuts.
 
 ## Development
 
