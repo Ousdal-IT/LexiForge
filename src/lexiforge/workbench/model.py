@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from ..blocklists import load_blocklists_with_metadata
@@ -18,6 +19,28 @@ class CandidateView:
     eligibility_reasons: tuple[str, ...]
     provenance: tuple[ProvenanceRecord, ...]
     reviews: tuple[ReviewRecord, ...]
+    blocklist_match: bool = False
+    similarity_warning: bool = False
+
+    @property
+    def contributor(self) -> str | None:
+        return self.candidate.submitted_by
+
+    @property
+    def reviewer(self) -> str | None:
+        return self.reviews[-1].reviewer_id if self.reviews else None
+
+    @property
+    def review_state(self) -> str:
+        if not self.reviews:
+            return "pending"
+        if self.reviews[-1].flags:
+            return "flagged"
+        return "complete"
+
+    @property
+    def source_type(self) -> str:
+        return self.candidate.source_type.value
 
     @property
     def search_text(self) -> str:
@@ -31,6 +54,17 @@ class CandidateFilter:
     category: str | None = None
     status: CandidateStatus | None = None
     release_eligible: bool | None = None
+    review_state: str | None = None
+    contributor: str | None = None
+    reviewer: str | None = None
+    source_type: str | None = None
+    license_eligible: bool | None = None
+    created_after: datetime | None = None
+    created_before: datetime | None = None
+    modified_after: datetime | None = None
+    modified_before: datetime | None = None
+    similarity_warning: bool | None = None
+    blocklist_state: str | None = None
 
     def matches(self, item: CandidateView) -> bool:
         candidate = item.candidate
@@ -40,6 +74,38 @@ class CandidateFilter:
             and (self.category is None or candidate.category == self.category)
             and (self.status is None or candidate.status == self.status)
             and (self.release_eligible is None or item.release_eligible == self.release_eligible)
+            and (self.review_state is None or item.review_state == self.review_state)
+            and (self.contributor is None or item.contributor == self.contributor)
+            and (self.reviewer is None or item.reviewer == self.reviewer)
+            and (self.source_type is None or item.source_type == self.source_type)
+            and (
+                self.license_eligible is None
+                or candidate.is_license_eligible == self.license_eligible
+            )
+            and (
+                self.created_after is None
+                or (candidate.submitted_at or datetime.min) >= self.created_after
+            )
+            and (
+                self.created_before is None
+                or (candidate.submitted_at or datetime.max) <= self.created_before
+            )
+            and (
+                self.modified_after is None
+                or (candidate.reviewed_at or datetime.min) >= self.modified_after
+            )
+            and (
+                self.modified_before is None
+                or (candidate.reviewed_at or datetime.max) <= self.modified_before
+            )
+            and (
+                self.similarity_warning is None
+                or item.similarity_warning == self.similarity_warning
+            )
+            and (
+                self.blocklist_state is None
+                or ("match" if item.blocklist_match else "clear") == self.blocklist_state
+            )
         )
 
 
@@ -73,6 +139,7 @@ class RepositorySnapshot:
                 repository.root / "languages" / language / "blocklists", profile
             )
             error_words = {item.word for item in blocklist_entries if item.severity == "error"}
+            blocklist_words = {item.word for item in blocklist_entries}
             for candidate_record in records:
                 candidate = candidate_record.candidate
                 candidate_provenance = tuple(
@@ -103,6 +170,7 @@ class RepositorySnapshot:
                         eligibility_reasons=reasons,
                         provenance=candidate_provenance,
                         reviews=candidate_reviews,
+                        blocklist_match=candidate.word in blocklist_words,
                     )
                 )
         return cls(

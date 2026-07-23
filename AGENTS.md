@@ -24,4 +24,5 @@ LexiForge builds deterministic, multilingual passphrase-wordlist artefacts. M0 i
 - The Textual workbench is presentation-only: forms construct existing operation objects, previews use the shared renderer, and apply calls `EditorialService`. Never add CSV writes or duplicate domain rules under `workbench/`.
 - Keep repository browsing responsive by reusing the immutable workbench snapshot until explicit reload. Do not run all-pairs similarity or reparse full datasets on each keystroke.
 - Textual tests run headless against temporary repository copies. Widget tests may inspect presentation behavior but must leave moderation and eligibility rule coverage in the editorial-service tests.
+- Power tools may cache read models, statistics, searches, similarity findings, and session state, but session/configuration files must remain outside the dataset. Batch and blocklist writes must produce one validated `ChangeSet` through `EditorialService`; partial or direct CSV writes are prohibited.
 - Before finishing, run `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src`, `uv run pytest`, `./scripts/check-repository-hygiene.sh`, and `git diff --check`.

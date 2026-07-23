@@ -11,6 +11,15 @@ from ..editorial.preview import render_text
 from ..models import CandidateStatus
 from ..repository import DatasetRepository
 from .model import CandidateFilter, CandidateView, RepositorySnapshot
+from .power_screens import (
+    BatchReviewScreen,
+    BlocklistEditorScreen,
+    CommandPaletteScreen,
+    ComparisonScreen,
+    DuplicateAssistantScreen,
+    SimilarityScreen,
+    StatisticsScreen,
+)
 from .screens import (
     AddCandidateScreen,
     EditCandidateScreen,
@@ -19,6 +28,13 @@ from .screens import (
     ReviewScreen,
     SupersedeScreen,
     WithdrawScreen,
+)
+from .tools import (
+    SavedSearchStore,
+    SessionState,
+    SessionStore,
+    repository_statistics,
+    similarity_browser,
 )
 
 
@@ -34,18 +50,29 @@ class EditorialWorkbench(App[None]):
         Binding("ctrl+enter", "apply", "Apply", show=False, priority=True),
         Binding("escape", "cancel", "Cancel", show=True),
         Binding("f1", "help", "Help", show=True, priority=True),
+        Binding("ctrl+shift+p", "command_palette", "Commands", show=True, priority=True),
         Binding("a", "add", "Add", show=True),
         Binding("e", "edit", "Edit", show=True),
         Binding("r", "review", "Review", show=True),
         Binding("p", "provenance", "Provenance", show=True),
         Binding("w", "withdraw", "Withdraw", show=True),
         Binding("s", "supersede", "Supersede", show=True),
+        Binding("d", "dashboard", "Dashboard", show=True),
+        Binding("space", "toggle_selection", "Select", show=True),
+        Binding("c", "compare", "Compare", show=True),
+        Binding("i", "similarity", "Similarity", show=True),
+        Binding("b", "blocklist", "Blocklist", show=True),
+        Binding("m", "batch_review", "Batch review", show=True),
+        Binding("v", "import_review", "Import review", show=True),
+        Binding("x", "statistics", "Statistics", show=True),
+        Binding("u", "duplicates", "Duplicates", show=True),
     ]
 
     CSS = """
     Screen { layout: vertical; }
     #title-bar { height: 3; padding: 1 2; background: $primary; color: $text; text-style: bold; }
     #filters { height: 3; padding: 0 1; }
+    #dashboard { height: 5; padding: 1 2; border: round $accent; }
     #filters Input { width: 2fr; }
     #filters Select { width: 1fr; }
     #workspace { height: 1fr; min-height: 12; }
@@ -63,35 +90,82 @@ class EditorialWorkbench(App[None]):
         self.repository = repository
         self.service = EditorialService(repository)
         self.snapshot = RepositorySnapshot.load(repository)
+        self.session_store = SessionStore()
+        self.saved_search_store = SavedSearchStore()
+        persisted = self.session_store.load()
+        self._persisted = (
+            persisted if persisted.repository == str(repository.root) else SessionState()
+        )
         self.pending_changeset: ChangeSet | None = None
-        self.selected_id: str | None = None
+        self.selected_id: str | None = self._persisted.selected_candidate
+        self.selected_ids: set[str] = set()
         self._visible: tuple[CandidateView, ...] = ()
-        self._sort_field = "word"
-        self._sort_reverse = False
+        self._sort_field = self._persisted.sort_field
+        self._sort_reverse = self._persisted.sort_reverse
 
     def compose(self) -> ComposeResult:
         yield Static(self._title_text(), id="title-bar")
+        yield Static("Loading dashboard…", id="dashboard", markup=False)
         with Horizontal(id="filters"):
-            yield Input(placeholder="Search word, normalized word, or UUID", id="search")
+            yield Input(
+                value=self._persisted.search,
+                placeholder="Search word, normalized word, or UUID",
+                id="search",
+            )
             yield Select(
                 [("All languages", "all"), *[(item, item) for item in self.snapshot.languages]],
-                value="all",
+                value=self._persisted.language or "all",
                 id="language-filter",
             )
             yield Select(
                 [("All categories", "all"), *[(item, item) for item in self.snapshot.categories]],
-                value="all",
+                value=self._persisted.category or "all",
                 id="category-filter",
             )
             yield Select(
                 [("All states", "all"), *[(item.value, item.value) for item in CandidateStatus]],
-                value="all",
+                value=self._persisted.status or "all",
                 id="status-filter",
             )
             yield Select(
                 [("Any eligibility", "all"), ("Eligible", "yes"), ("Ineligible", "no")],
-                value="all",
+                value=("yes" if self._persisted.release_eligible else "no")
+                if self._persisted.release_eligible is not None
+                else "all",
                 id="eligibility-filter",
+            )
+            yield Select(
+                [
+                    ("All sources", "all"),
+                    ("Manual", "manual"),
+                    ("Import", "import"),
+                    ("Community", "community"),
+                ],
+                value="all",
+                id="source-filter",
+            )
+        with Horizontal(id="advanced-filters"):
+            yield Input(placeholder="Contributor", id="contributor-filter")
+            yield Input(placeholder="Reviewer", id="reviewer-filter")
+            yield Select(
+                [
+                    ("All review states", "all"),
+                    ("Pending", "pending"),
+                    ("Complete", "complete"),
+                    ("Flagged", "flagged"),
+                ],
+                value="all",
+                id="review-filter",
+            )
+            yield Select(
+                [("Any license", "all"), ("Eligible", "yes"), ("Ineligible", "no")],
+                value="all",
+                id="license-filter",
+            )
+            yield Select(
+                [("Any blocklist", "all"), ("Matches", "match"), ("Clear", "clear")],
+                value="all",
+                id="blocklist-filter",
             )
         with Horizontal(id="workspace"):
             yield DataTable(id="candidate-table", cursor_type="row", zebra_stripes=True)
@@ -105,6 +179,7 @@ class EditorialWorkbench(App[None]):
         table.add_columns("Word", "Lang", "Category", "Status", "Eligible")
         self.refresh_candidates()
         table.focus()
+        self.refresh_dashboard()
 
     def _title_text(self) -> str:
         return f"LexiForge Editorial Workbench  ·  {self.repository.root}"
@@ -118,12 +193,22 @@ class EditorialWorkbench(App[None]):
         category = self._select_value(self.query_one("#category-filter", Select))
         status = self._select_value(self.query_one("#status-filter", Select))
         eligibility = self._select_value(self.query_one("#eligibility-filter", Select))
+        source = self._select_value(self.query_one("#source-filter", Select))
+        review_state = self._select_value(self.query_one("#review-filter", Select))
+        license_state = self._select_value(self.query_one("#license-filter", Select))
+        blocklist_state = self._select_value(self.query_one("#blocklist-filter", Select))
         return CandidateFilter(
             search=self.query_one("#search", Input).value,
             language=None if language == "all" else language,
             category=None if category == "all" else category,
             status=None if status == "all" else CandidateStatus(status),
             release_eligible=None if eligibility == "all" else eligibility == "yes",
+            source_type=None if source == "all" else source,
+            review_state=None if review_state == "all" else review_state,
+            contributor=self.query_one("#contributor-filter", Input).value or None,
+            reviewer=self.query_one("#reviewer-filter", Input).value or None,
+            license_eligible=None if license_state == "all" else license_state == "yes",
+            blocklist_state=None if blocklist_state == "all" else blocklist_state,
         )
 
     def refresh_candidates(self) -> None:
@@ -158,6 +243,24 @@ class EditorialWorkbench(App[None]):
             self.selected_id = None
             self.query_one("#candidate-details", Static).update("No matching candidates")
         self.update_status()
+        self.refresh_dashboard()
+
+    def refresh_dashboard(self) -> None:
+        stats = repository_statistics(self.snapshot)
+        self.query_one("#dashboard", Static).update(
+            " · ".join(
+                (
+                    f"Candidates {stats.total_candidates}",
+                    f"Pending reviews {stats.pending_reviews}",
+                    f"Flagged {stats.flagged}",
+                    f"Approved {stats.approved}",
+                    f"Eligible {stats.release_eligible}",
+                    f"Blocked {stats.release_blocked}",
+                    f"Missing provenance {stats.provenance_missing}",
+                    f"Blocklist matches {stats.blocklist_matches}",
+                )
+            )
+        )
 
     def select_candidate(self, item: CandidateView) -> None:
         self.selected_id = item.candidate.id
@@ -220,7 +323,7 @@ class EditorialWorkbench(App[None]):
         self.refresh_candidates()
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "search":
+        if event.input.id and (event.input.id == "search" or event.input.id.endswith("-filter")):
             self.refresh_candidates()
 
     def on_select_changed(self, event: Select.Changed) -> None:
@@ -287,6 +390,54 @@ class EditorialWorkbench(App[None]):
         self.query_one("#preview", Static).update("No pending change set.")
         self.update_status("preview discarded")
 
+    def action_toggle_selection(self) -> None:
+        if self.selected_id is None:
+            return
+        if self.selected_id in self.selected_ids:
+            self.selected_ids.remove(self.selected_id)
+        else:
+            self.selected_ids.add(self.selected_id)
+        self.update_status()
+
+    def action_compare(self) -> None:
+        selected = [self.snapshot.candidate(item) for item in sorted(self.selected_ids)]
+        if len(selected) == 2 and selected[0] and selected[1]:
+            self.push_screen(ComparisonScreen(selected[0], selected[1]))
+        else:
+            self.query_one("#preview", Static).update("Select exactly two candidates to compare.")
+
+    def action_similarity(self) -> None:
+        self.push_screen(
+            SimilarityScreen(similarity_browser(self.snapshot, self.current_filter().language))
+        )
+
+    def action_statistics(self) -> None:
+        self.push_screen(StatisticsScreen(repository_statistics(self.snapshot)))
+
+    def action_duplicates(self) -> None:
+        self.push_screen(DuplicateAssistantScreen(similarity_browser(self.snapshot)))
+
+    def action_blocklist(self) -> None:
+        self.push_screen(
+            BlocklistEditorScreen(self.current_filter().language or self.snapshot.languages[0]),
+            self.prepare_operation,
+        )
+
+    def action_batch_review(self) -> None:
+        if self.selected_ids:
+            self.push_screen(
+                BatchReviewScreen(tuple(sorted(self.selected_ids))),
+                self.prepare_operation,
+            )
+        else:
+            self.query_one("#preview", Static).update("Select candidates for batch review.")
+
+    def action_import_review(self) -> None:
+        source = self.query_one("#source-filter", Select)
+        source.value = "import"
+        self.query_one("#status-filter", Select).value = "submitted"
+        self.refresh_candidates()
+
     def action_reload(self) -> None:
         self.reload_repository(message="Repository reloaded")
 
@@ -303,6 +454,7 @@ class EditorialWorkbench(App[None]):
         if message:
             self.query_one("#preview", Static).update(message)
         self.update_status(message)
+        self.refresh_dashboard()
 
     def action_focus_search(self) -> None:
         self.query_one("#search", Input).focus()
@@ -313,6 +465,24 @@ class EditorialWorkbench(App[None]):
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
 
+    def action_dashboard(self) -> None:
+        self.query_one("#dashboard", Static).focus()
+
+    def action_command_palette(self) -> None:
+        self.push_screen(
+            CommandPaletteScreen(
+                (
+                    ("Add candidate", self.action_add),
+                    ("Edit candidate", self.action_edit),
+                    ("Record review", self.action_review),
+                    ("Open dashboard", self.action_dashboard),
+                    ("Find similar", self.action_similarity),
+                    ("Reload repository", self.action_reload),
+                    ("Export statistics", self.action_statistics),
+                )
+            )
+        )
+
     def update_status(self, message: str = "") -> None:
         language = self.current_filter().language or "all"
         selection = self.selected_id or "none"
@@ -321,4 +491,22 @@ class EditorialWorkbench(App[None]):
         self.query_one("#status-bar", Static).update(
             f"{self.repository.root} · language={language} · "
             f"selection={selection} · {dirty} · {len(self._visible)} shown{suffix}"
+        )
+
+    def on_unmount(self) -> None:
+        if not self.query("#language-filter"):
+            return
+        filters = self.current_filter()
+        self.session_store.save(
+            SessionState(
+                repository=str(self.repository.root),
+                language=filters.language,
+                search=filters.search,
+                category=filters.category,
+                status=filters.status.value if filters.status else None,
+                release_eligible=filters.release_eligible,
+                sort_field=self._sort_field,
+                sort_reverse=self._sort_reverse,
+                selected_candidate=self.selected_id,
+            )
         )

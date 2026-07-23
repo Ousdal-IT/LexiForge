@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import Protocol
 from uuid import NAMESPACE_URL, uuid5
 
+import yaml
+
 from ..models import (
     CandidateStatus,
     CriterionValue,
@@ -330,6 +332,258 @@ class BatchImportOperation:
             details=(
                 ("candidate_count", str(len(normalized_words))),
                 ("language", self.language),
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class BatchReviewOperation:
+    """Plan several independent review transitions as one ChangeSet."""
+
+    candidate_ids: tuple[str, ...]
+    decision: ReviewDecision
+    reviewer_id: str
+    reviewed_at: datetime
+    criteria: ReviewCriteria
+    comment: str = ""
+    reason: str | None = None
+    flags: tuple[str, ...] = ()
+
+    @property
+    def name(self) -> str:
+        return f"review.batch_{self.decision.value}"
+
+    def plan(self, context: EditorialContextProtocol) -> OperationPlan:
+        if not self.candidate_ids:
+            raise MutationRejectedError("batch review requires at least one candidate")
+        if len(set(self.candidate_ids)) != len(self.candidate_ids):
+            raise MutationRejectedError("batch review contains duplicate candidate IDs")
+        plans: list[OperationPlan] = []
+        failures: list[str] = []
+        for candidate_id in self.candidate_ids:
+            try:
+                plans.append(
+                    RecordReviewOperation(
+                        candidate_id=candidate_id,
+                        decision=self.decision,
+                        reviewer_id=self.reviewer_id,
+                        reviewed_at=self.reviewed_at,
+                        criteria=self.criteria,
+                        comment=self.comment,
+                        reason=self.reason,
+                        flags=self.flags,
+                    ).plan(context)
+                )
+            except MutationRejectedError as error:
+                failures.append(f"{candidate_id}: {error}")
+        if failures:
+            raise MutationRejectedError(
+                "batch review rejected; no candidates were changed: " + " | ".join(failures)
+            )
+        candidate_language: dict[str, str] = {}
+        for candidate_id in self.candidate_ids:
+            candidate_language[candidate_id] = context.candidate(candidate_id).language
+        candidate_files: dict[str, tuple[list[str], list[dict[str, str]]]] = {}
+        review_files: dict[str, tuple[list[str], list[dict[str, str]]]] = {}
+        for plan in plans:
+            for proposed in plan.files:
+                fields, rows = _read_csv(proposed.content)
+                if proposed.relative_path.endswith("candidates.csv"):
+                    candidate_files[proposed.relative_path] = (fields, rows)
+                else:
+                    review_files[proposed.relative_path] = (fields, rows)
+        merged: list[ProposedFile] = []
+        for language in sorted(set(candidate_language.values())):
+            candidate_path = _candidate_path(language)
+            review_path = _reviews_path(language)
+            original_candidate_fields, original_candidate_rows = _read_csv(
+                context.read_bytes(candidate_path)
+            )
+            original_review_fields, original_review_rows = _read_csv(
+                context.read_bytes(review_path)
+            )
+            candidate_rows = {row["id"]: row for row in original_candidate_rows}
+            review_rows = {row["id"]: row for row in original_review_rows}
+            for plan in plans:
+                modified_id: str | None = next(
+                    (item for item in plan.records_modified if item in candidate_rows), None
+                )
+                if modified_id is None or candidate_language[modified_id] != language:
+                    continue
+                for proposed in plan.files:
+                    if proposed.relative_path == candidate_path:
+                        _, rows = _read_csv(proposed.content)
+                        candidate_rows[modified_id] = next(
+                            row for row in rows if row["id"] == modified_id
+                        )
+                    elif proposed.relative_path == review_path:
+                        _, rows = _read_csv(proposed.content)
+                        for row in rows:
+                            if row["id"] not in review_rows:
+                                review_rows[row["id"]] = row
+            merged.extend(
+                (
+                    ProposedFile(
+                        candidate_path,
+                        _render_csv(
+                            original_candidate_fields,
+                            sorted(candidate_rows.values(), key=lambda row: row["id"]),
+                        ),
+                    ),
+                    ProposedFile(
+                        review_path,
+                        _render_csv(
+                            original_review_fields,
+                            sorted(
+                                review_rows.values(),
+                                key=lambda row: (row["reviewed_at"], row["id"]),
+                            ),
+                        ),
+                    ),
+                )
+            )
+        return OperationPlan(
+            files=tuple(merged),
+            records_added=tuple(sorted(record for plan in plans for record in plan.records_added)),
+            records_modified=tuple(sorted(self.candidate_ids)),
+            status_transitions=tuple(
+                transition for plan in plans for transition in plan.status_transitions
+            ),
+            warnings=tuple(sorted(warning for plan in plans for warning in plan.warnings)),
+            details=(
+                ("candidate_count", str(len(self.candidate_ids))),
+                ("criteria", _criteria_text(self.criteria)),
+                ("decision", self.decision.value),
+                ("reviewer_id", self.reviewer_id),
+                ("reviewed_at", _aware(self.reviewed_at, "reviewed_at")),
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class BatchEditCandidateOperation:
+    """Apply an allowed metadata edit to several candidates as one changeset."""
+
+    candidate_ids: tuple[str, ...]
+    category: str | None = None
+    notes: str | None = None
+
+    @property
+    def name(self) -> str:
+        return "candidate.batch_edit"
+
+    def plan(self, context: EditorialContextProtocol) -> OperationPlan:
+        if not self.candidate_ids:
+            raise MutationRejectedError("batch edit requires at least one candidate")
+        if len(set(self.candidate_ids)) != len(self.candidate_ids):
+            raise MutationRejectedError("batch edit contains duplicate candidate IDs")
+        plans = [
+            EditCandidateOperation(
+                candidate_id=candidate_id,
+                category=self.category,
+                notes=self.notes,
+            ).plan(context)
+            for candidate_id in self.candidate_ids
+        ]
+        changed_paths: dict[str, tuple[list[str], dict[str, dict[str, str]]]] = {}
+        for plan in plans:
+            for proposed in plan.files:
+                if proposed.relative_path not in changed_paths:
+                    fields, source_rows = _read_csv(context.read_bytes(proposed.relative_path))
+                    changed_paths[proposed.relative_path] = (
+                        fields,
+                        {row["id"]: row for row in source_rows},
+                    )
+                _, current_rows = changed_paths[proposed.relative_path]
+                _, proposed_rows = _read_csv(proposed.content)
+                for candidate_id in plan.records_modified:
+                    current_rows[candidate_id] = next(
+                        row for row in proposed_rows if row["id"] == candidate_id
+                    )
+        merged: list[ProposedFile] = []
+        for path, (fields, rows) in sorted(changed_paths.items()):
+            merged.append(
+                ProposedFile(
+                    path,
+                    _render_csv(fields, sorted(rows.values(), key=lambda row: row["id"])),
+                )
+            )
+        return OperationPlan(
+            files=tuple(merged),
+            records_modified=tuple(sorted(self.candidate_ids)),
+            field_changes=tuple(change for plan in plans for change in plan.field_changes),
+            warnings=tuple(sorted(warning for plan in plans for warning in plan.warnings)),
+            details=(("candidate_count", str(len(self.candidate_ids))),),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class BlocklistEditOperation:
+    """Add, replace, or disable an entry through the service boundary."""
+
+    language: str
+    blocklist_id: str
+    action: str
+    word: str
+    replacement: str | None = None
+    reason: str = ""
+
+    @property
+    def name(self) -> str:
+        return "blocklist.edit"
+
+    def plan(self, context: EditorialContextProtocol) -> OperationPlan:
+        profile = context.profile(self.language)
+        normalized = context.normalize(self.language, self.word)
+        if normalized != self.word:
+            raise MutationRejectedError("blocklist words must already be normalized")
+        metadata_path = f"languages/{self.language}/blocklists/metadata.yaml"
+        metadata = yaml.safe_load(context.read_bytes(metadata_path).decode("utf-8")) or {}
+        item = next(
+            (
+                entry
+                for entry in metadata.get("blocklists", [])
+                if entry.get("id") == self.blocklist_id
+            ),
+            None,
+        )
+        if item is None:
+            raise MutationRejectedError(f"unknown blocklist: {self.blocklist_id}")
+        path = f"languages/{self.language}/blocklists/{item['file']}"
+        content = context.read_bytes(path).decode("utf-8")
+        lines = content.splitlines()
+        comments = [line for line in lines if not line.strip() or line.lstrip().startswith("#")]
+        entries = [
+            line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")
+        ]
+        if self.action == "add":
+            if self.word in entries:
+                raise DuplicateCandidateError(f"blocklist entry already exists: {self.word}")
+            entries.append(self.word)
+        elif self.action == "disable":
+            if self.word not in entries:
+                raise MutationRejectedError(f"blocklist entry not found: {self.word}")
+            entries[entries.index(self.word)] = f"# disabled: {self.word} ({self.reason})"
+        elif self.action == "edit":
+            if self.replacement is None:
+                raise MutationRejectedError("blocklist edit requires replacement")
+            replacement = context.normalize(self.language, self.replacement)
+            if replacement != self.replacement:
+                raise MutationRejectedError("replacement must already be normalized")
+            if self.word not in entries:
+                raise MutationRejectedError(f"blocklist entry not found: {self.word}")
+            entries[entries.index(self.word)] = replacement
+        else:
+            raise MutationRejectedError(f"unsupported blocklist action: {self.action}")
+        output = "\n".join(comments + sorted(set(entries))) + "\n"
+        return OperationPlan(
+            files=(ProposedFile(path, output.encode("utf-8")),),
+            records_modified=(self.blocklist_id,),
+            details=(
+                ("action", self.action),
+                ("blocklist_id", self.blocklist_id),
+                ("language", profile.code),
+                ("word", self.word),
             ),
         )
 

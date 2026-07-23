@@ -232,6 +232,34 @@ def editor_command(
     EditorialWorkbench(_repository(data_root)).run()
 
 
+@app.command("stats")
+def stats_command(
+    output_format: Annotated[str, typer.Option("--format")] = "json",
+    language: Annotated[str | None, typer.Option("--language", "-l")] = None,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+) -> None:
+    """Export deterministic repository statistics as JSON or CSV."""
+    from dataclasses import replace
+
+    from .workbench.model import CandidateFilter, RepositorySnapshot
+    from .workbench.tools import repository_statistics
+
+    repository = _repository(data_root)
+    snapshot = RepositorySnapshot.load(repository)
+    if language:
+        snapshot = replace(
+            snapshot,
+            candidates=snapshot.filtered(CandidateFilter(language=language)),
+        )
+    statistics = repository_statistics(snapshot)
+    if output_format == "json":
+        typer.echo(render_json(statistics.as_dict()), nl=False)
+    elif output_format == "csv":
+        typer.echo(statistics.to_csv(), nl=False)
+    else:
+        raise typer.BadParameter("format must be json or csv")
+
+
 @app.command("validate-repository")
 def validate_repository_command(
     data_root: Annotated[Path | None, typer.Option("--data-root")] = None,

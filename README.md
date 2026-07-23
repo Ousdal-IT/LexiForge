@@ -51,6 +51,10 @@ Every data-aware command resolves its dataset-interface root in this order: an e
 
 M3.2 adds the preferred full-screen Textual workbench through `lexiforge editor`. It browses and filters a cached read snapshot, renders the existing deterministic previews, and applies only validated service change sets. See `docs/editorial-workbench.md` for workflows and keyboard shortcuts.
 
+M3.3 adds the editorial dashboard, combinable power filters, saved searches, batch review, statistics, similarity and duplicate tools, comparison, blocklist operations, import-review mode, and external session persistence. See `docs/editorial-power-tools.md` for the power-user guide.
+
+Repository statistics are also available without opening the workbench: `uv run lexiforge stats --format json` (or `--format csv`).
+
 ## Development
 
 ```bash

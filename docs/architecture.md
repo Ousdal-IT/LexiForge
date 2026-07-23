@@ -22,4 +22,8 @@ M3.1 supplies immutable operation planners for candidate creation/editing/withdr
 
 M3.2 adds a Textual presentation layer. It loads one immutable, read-optimized candidate snapshot per explicit repository reload, while every proposed mutation remains an M3.1 operation passed to `EditorialService`. The preview pane calls the shared renderer verbatim; apply uses the pending validated `ChangeSet`. Textual widgets contain no serializers, normalization rules, moderation rules, or eligibility decisions.
 
+M3.3 adds power-tool read models and service operations without changing that boundary. Statistics,
+filters, saved searches, similarity, comparison, and session state are presentation-side data. Batch
+review and blocklist edits produce one service `ChangeSet`; they do not write canonical CSV directly.
+
 Language behavior is configuration-driven; adding a compatible profile does not change validator logic. M0 deliberately has no persistence service, web framework, accounts, external API, plugin architecture, or semantic classifier.

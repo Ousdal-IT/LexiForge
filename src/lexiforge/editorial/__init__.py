@@ -9,6 +9,10 @@ from .errors import EditorialError
 from .operations import (
     AddCandidateOperation,
     AddProvenanceOperation,
+    BatchEditCandidateOperation,
+    BatchImportOperation,
+    BatchReviewOperation,
+    BlocklistEditOperation,
     EditCandidateOperation,
     RecordReviewOperation,
     SupersedeCandidateOperation,
@@ -20,6 +24,10 @@ from .service import EditorialService
 __all__ = [
     "AddCandidateOperation",
     "AddProvenanceOperation",
+    "BatchImportOperation",
+    "BatchEditCandidateOperation",
+    "BatchReviewOperation",
+    "BlocklistEditOperation",
     "ChangeSet",
     "EditCandidateOperation",
     "EditorialError",

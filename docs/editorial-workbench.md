@@ -71,3 +71,6 @@ CSV dataset interface
 The workbench contains presentation state and a read-optimized snapshot only. It has no CSV writer,
 moderation transition table, normalization policy, duplicate detector, eligibility engine, or
 preview formatter. A future richer editor must continue using the same boundary.
+
+For large-session features—dashboard, saved searches, batch review, similarity, comparison,
+duplicate triage, blocklists, and statistics—see `docs/editorial-power-tools.md`.
