@@ -27,3 +27,8 @@ filters, saved searches, similarity, comparison, and session state are presentat
 review and blocklist edits produce one service `ChangeSet`; they do not write canonical CSV directly.
 
 Language behavior is configuration-driven; adding a compatible profile does not change validator logic. M0 deliberately has no persistence service, web framework, accounts, external API, plugin architecture, or semantic classifier.
+
+M4.0 adds an optional disposable SQLite index for read-heavy workflows. Canonical files remain
+authoritative; fingerprints, schema and profile compatibility are checked before every indexed
+query. Missing or stale indexes fall back to canonical loaders, and no mutation or validation rule
+depends on the index.

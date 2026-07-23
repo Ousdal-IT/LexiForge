@@ -31,6 +31,8 @@ from .editorial.preview import render_json as render_editorial_json
 from .editorial.preview import render_text as render_editorial_text
 from .errors import ConfigurationError, LexiForgeError, ValidationFailure
 from .export import approved_words, export_wordlist
+from .index import RepositoryIndex, RepositoryIndexBuilder, RepositoryIndexError
+from .index.storage import index_path
 from .io import load_blocklists, load_language_candidates
 from .manifest import create_manifest, verify_manifest, write_manifest
 from .models import CandidateRecord, LanguageProfile, SourceKind, SourceType, ValidationResult
@@ -49,12 +51,14 @@ review_app = typer.Typer(help="Record explicit local moderation decisions.")
 provenance_app = typer.Typer(help="Inspect and maintain candidate provenance.")
 release_app = typer.Typer(help="Plan deterministic dataset releases.")
 report_app = typer.Typer(help="Generate static public dataset reports.")
+index_app = typer.Typer(help="Build and verify the disposable repository index.")
 app.add_typer(curate_app, name="curate")
 app.add_typer(candidates_app, name="candidates")
 app.add_typer(review_app, name="review")
 app.add_typer(provenance_app, name="provenance")
 app.add_typer(release_app, name="release")
 app.add_typer(report_app, name="report")
+app.add_typer(index_app, name="index")
 
 
 class ReportFormat(StrEnum):
@@ -70,6 +74,11 @@ class ExportFormat(StrEnum):
 
 
 class EditorialFormat(StrEnum):
+    TEXT = "text"
+    JSON = "json"
+
+
+class IndexOutputFormat(StrEnum):
     TEXT = "text"
     JSON = "json"
 
@@ -258,6 +267,154 @@ def stats_command(
         typer.echo(statistics.to_csv(), nl=False)
     else:
         raise typer.BadParameter("format must be json or csv")
+
+
+def _index_location(repository: DatasetRepository, index_root: Path | None) -> Path:
+    try:
+        return index_path(repository.root, index_root)
+    except RepositoryIndexError as error:
+        raise typer.BadParameter(str(error), param_hint="--index-root") from error
+
+
+def _index_payload(repository: DatasetRepository, index_root: Path | None) -> dict[str, object]:
+    status = RepositoryIndex.status(repository, _index_location(repository, index_root))
+    payload: dict[str, object] = {
+        "repository": str(repository.root),
+        "index_path": status.path,
+        "present": status.present,
+        "valid": status.valid,
+        "state": status.state,
+    }
+    if status.reason:
+        payload["reason"] = status.reason
+    if status.metadata:
+        payload["metadata"] = status.metadata.as_dict()
+    return payload
+
+
+@index_app.command("status")
+def index_status_command(
+    output_format: Annotated[IndexOutputFormat, typer.Option("--format")] = IndexOutputFormat.TEXT,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+    index_root: Annotated[Path | None, typer.Option("--index-root")] = None,
+) -> None:
+    """Report whether the derived index is present and current."""
+    repository = _repository(data_root)
+    payload = _index_payload(repository, index_root)
+    if output_format == IndexOutputFormat.JSON:
+        typer.echo(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n", nl=False
+        )
+        return
+    typer.echo(f"Repository: {payload['repository']}")
+    typer.echo(f"Index: {payload['index_path']}")
+    typer.echo(f"State: {payload['state']}")
+    if "reason" in payload:
+        typer.echo(f"Reason: {payload['reason']}")
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        typer.echo(f"Records: {metadata['record_counts']}")
+
+
+@index_app.command("build")
+def index_build_command(
+    force: Annotated[bool, typer.Option("--force")] = False,
+    output_format: Annotated[IndexOutputFormat, typer.Option("--format")] = IndexOutputFormat.TEXT,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+    index_root: Annotated[Path | None, typer.Option("--index-root")] = None,
+) -> None:
+    """Build and verify a complete derived index."""
+    del force  # A verified build is already an atomic replacement.
+    repository = _repository(data_root)
+    try:
+        metadata = RepositoryIndexBuilder(repository, index_root).build()
+    except RepositoryIndexError as error:
+        raise typer.BadParameter(str(error)) from error
+    payload = {
+        "ok": True,
+        "operation": "build",
+        "index_path": str(_index_location(repository, index_root)),
+        "metadata": metadata.as_dict(),
+    }
+    if output_format == IndexOutputFormat.JSON:
+        typer.echo(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n", nl=False
+        )
+    else:
+        typer.echo("Index built and verified")
+        typer.echo(f"Path: {payload['index_path']}")
+        typer.echo(f"Records: {metadata.record_counts}")
+
+
+@index_app.command("refresh")
+def index_refresh_command(
+    output_format: Annotated[IndexOutputFormat, typer.Option("--format")] = IndexOutputFormat.TEXT,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+    index_root: Annotated[Path | None, typer.Option("--index-root")] = None,
+) -> None:
+    """Refresh the index, rebuilding when an incremental update is unsafe."""
+    repository = _repository(data_root)
+    try:
+        metadata, strategy = RepositoryIndexBuilder(repository, index_root).refresh()
+    except RepositoryIndexError as error:
+        raise typer.BadParameter(str(error)) from error
+    payload = {
+        "ok": True,
+        "operation": "refresh",
+        "strategy": strategy,
+        "index_path": str(_index_location(repository, index_root)),
+        "metadata": metadata.as_dict(),
+    }
+    if output_format == IndexOutputFormat.JSON:
+        typer.echo(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n", nl=False
+        )
+    else:
+        typer.echo(f"Index refresh: {strategy}")
+        typer.echo(f"Records: {metadata.record_counts}")
+
+
+@index_app.command("verify")
+def index_verify_command(
+    output_format: Annotated[IndexOutputFormat, typer.Option("--format")] = IndexOutputFormat.TEXT,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+    index_root: Annotated[Path | None, typer.Option("--index-root")] = None,
+) -> None:
+    """Verify an existing index without rebuilding it."""
+    repository = _repository(data_root)
+    payload = _index_payload(repository, index_root)
+    if not payload["valid"]:
+        if output_format == IndexOutputFormat.JSON:
+            typer.echo(
+                json.dumps({"ok": False, **payload}, sort_keys=True, indent=2) + "\n", nl=False
+            )
+        else:
+            typer.echo(f"index invalid: {payload.get('reason', payload['state'])}", err=True)
+        raise typer.Exit(1)
+    if output_format == IndexOutputFormat.JSON:
+        typer.echo(json.dumps({"ok": True, **payload}, sort_keys=True, indent=2) + "\n", nl=False)
+    else:
+        typer.echo("Index valid")
+
+
+@index_app.command("clear")
+def index_clear_command(
+    yes: Annotated[
+        bool, typer.Option("--yes", help="Confirm removal of derived index files.")
+    ] = False,
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+    index_root: Annotated[Path | None, typer.Option("--index-root")] = None,
+) -> None:
+    """Remove only the selected repository's derived index."""
+    if not yes:
+        raise typer.BadParameter("pass --yes to remove derived index files")
+    repository = _repository(data_root)
+    location = _index_location(repository, index_root)
+    for path in (location, location.with_suffix(location.suffix + ".lock")):
+        path.unlink(missing_ok=True)
+    if location.parent.exists() and not any(location.parent.iterdir()):
+        location.parent.rmdir()
+    typer.echo(f"Cleared derived index: {location}")
 
 
 @app.command("validate-repository")
@@ -535,14 +692,50 @@ def curate_report_command(
 @candidates_app.command("list")
 def candidates_list(
     language: Annotated[str, typer.Option("--language", "-l")],
+    search: Annotated[str, typer.Option("--search")] = "",
+    status: Annotated[str | None, typer.Option("--status")] = None,
+    category: Annotated[str | None, typer.Option("--category")] = None,
+    limit: Annotated[int, typer.Option("--limit", min=1)] = 100,
+    offset: Annotated[int, typer.Option("--offset", min=0)] = 0,
     data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+    index_root: Annotated[Path | None, typer.Option("--index-root")] = None,
+    require_index: Annotated[bool, typer.Option("--require-index")] = False,
 ) -> None:
-    """List candidates in stable ID order."""
+    """List candidates using the valid derived index, with canonical fallback."""
     repository = _repository(data_root)
+    index = None
+    try:
+        index = RepositoryIndex.open(repository, _index_location(repository, index_root))
+    except RepositoryIndexError as error:
+        if require_index:
+            raise typer.BadParameter(str(error)) from error
+    if index is not None:
+        page = index.search_candidates(
+            search,
+            language=language,
+            category=category,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+        for item in page.items:
+            typer.echo(f"{item.candidate.id}\t{item.candidate.word}\t{item.candidate.status.value}")
+        index.close()
+        return
     _, records, _, _ = load_curation_data(language, repository.root)
-    for record in sorted(records, key=lambda item: item.candidate.id):
-        item = record.candidate
-        typer.echo(f"{item.id}\t{item.word}\t{item.status.value}")
+    filtered = [
+        record
+        for record in records
+        if (
+            not search
+            or search.casefold() in f"{record.candidate.word} {record.candidate.id}".casefold()
+        )
+        and (status is None or record.candidate.status.value == status)
+        and (category is None or record.candidate.category == category)
+    ]
+    for record in sorted(filtered, key=lambda item: item.candidate.id)[offset : offset + limit]:
+        candidate = record.candidate
+        typer.echo(f"{candidate.id}\t{candidate.word}\t{candidate.status.value}")
 
 
 @candidates_app.command("show")

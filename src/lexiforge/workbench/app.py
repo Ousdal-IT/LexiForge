@@ -8,6 +8,7 @@ from textual.widgets import DataTable, Footer, Input, Select, Static
 from ..editorial import ChangeSet, EditorialError, EditorialService
 from ..editorial.operations import EditorialOperation
 from ..editorial.preview import render_text
+from ..index import RepositoryIndex
 from ..models import CandidateStatus
 from ..repository import DatasetRepository
 from .model import CandidateFilter, CandidateView, RepositorySnapshot
@@ -89,6 +90,7 @@ class EditorialWorkbench(App[None]):
         super().__init__()
         self.repository = repository
         self.service = EditorialService(repository)
+        self.index_status = RepositoryIndex.status(repository)
         self.snapshot = RepositorySnapshot.load(repository)
         self.session_store = SessionStore()
         self.saved_search_store = SavedSearchStore()
@@ -445,6 +447,7 @@ class EditorialWorkbench(App[None]):
         try:
             self.service = EditorialService(self.repository)
             self.snapshot = RepositorySnapshot.load(self.repository)
+            self.index_status = RepositoryIndex.status(self.repository)
         except EditorialError as error:
             self.query_one("#preview", Static).update(f"Editorial error: {error}")
             self.update_status("reload failed")
@@ -490,7 +493,8 @@ class EditorialWorkbench(App[None]):
         suffix = f" · {message}" if message else ""
         self.query_one("#status-bar", Static).update(
             f"{self.repository.root} · language={language} · "
-            f"selection={selection} · {dirty} · {len(self._visible)} shown{suffix}"
+            f"selection={selection} · {dirty} · {len(self._visible)} shown · "
+            f"index={self.index_status.state}{suffix}"
         )
 
     def on_unmount(self) -> None:
