@@ -55,7 +55,12 @@ M3.3 adds the editorial dashboard, combinable power filters, saved searches, bat
 
 Repository statistics are also available without opening the workbench: `uv run lexiforge stats --format json` (or `--format csv`).
 
-M4.0 adds an optional disposable repository index for faster local reads. Build it outside canonical data with `uv run lexiforge index build --data-root ../LexiForge-Data/data`; see `docs/repository-index.md` and `docs/performance.md`.
+M4.0 adds an optional disposable repository index for selected local reads. Canonical files remain
+authoritative, and a missing, stale, incompatible or corrupt index falls back to identical
+canonical `candidates list` results. The workbench currently reports index status but continues to
+use its canonical immutable snapshot. Build the index outside canonical data with
+`uv run lexiforge index build --data-root ../LexiForge-Data/data`; see
+`docs/repository-index.md` and `docs/performance.md`.
 
 ## Development
 

@@ -12,3 +12,4 @@
 - Add M3.3 power tools: dashboard statistics, advanced filters, saved-search/session persistence, batch review, similarity and duplicate assistants, candidate comparison, blocklist operations, and import-review mode.
 - Harden batch approval: require explicit canonical review criteria, validate every candidate before writing, report per-candidate failures, and apply successful batches atomically.
 - Add the disposable SQLite repository index, deterministic fingerprints, index lifecycle CLI, canonical fallback, and indexed read primitives for lookup, search, statistics, provenance, reviews, and similarity candidate generation.
+- Harden M4.0 with canonical/index search, filtering, ordering, statistics, eligibility and Unicode parity; deterministic metadata; strict SQLite integrity checks; pre/post-build fingerprints; ownership-aware locks; and corruption-safe fallback.

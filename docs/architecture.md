@@ -32,3 +32,7 @@ M4.0 adds an optional disposable SQLite index for read-heavy workflows. Canonica
 authoritative; fingerprints, schema and profile compatibility are checked before every indexed
 query. Missing or stale indexes fall back to canonical loaders, and no mutation or validation rule
 depends on the index.
+
+Web submission and moderation infrastructure is deferred to M5 and a separate repository. It must
+consume the versioned dataset and editorial contracts rather than introducing web concerns into
+this local tooling package.

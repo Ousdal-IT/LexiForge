@@ -1,11 +1,10 @@
-"""Full and incremental builders for the disposable SQLite index."""
+"""Full builders for the disposable SQLite index."""
 
 import json
 import os
 import sqlite3
 import tempfile
 from collections.abc import Callable
-from datetime import UTC, datetime
 from pathlib import Path
 
 from ..blocklists import load_blocklists_with_metadata
@@ -24,7 +23,7 @@ from .metadata import (
     repository_identity,
 )
 from .model import IndexMetadata
-from .storage import build_lock, index_path
+from .storage import build_lock, index_path, sqlite_integrity_errors
 
 Progress = Callable[[str, int, int], None]
 
@@ -66,12 +65,12 @@ class RepositoryIndexBuilder:
         self.path = index_path(repository.root, index_root)
 
     def build(self, progress: Progress | None = None) -> IndexMetadata:
-        errors = self.repository.validate_layout()
-        if errors:
-            raise IndexBuildError("cannot index invalid repository: " + "; ".join(errors))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with build_lock(self.path):
             files = file_fingerprints(self.repository)
+            errors = self.repository.validate_layout()
+            if errors:
+                raise IndexBuildError("cannot index invalid repository: " + "; ".join(errors))
             metadata = self._metadata(files)
             descriptor, temporary_name = tempfile.mkstemp(
                 prefix="index-", suffix=".sqlite3", dir=self.path.parent
@@ -80,6 +79,15 @@ class RepositoryIndexBuilder:
             temporary = Path(temporary_name)
             try:
                 self._build_database(temporary, metadata, progress)
+                final_files = file_fingerprints(self.repository)
+                if final_files != files:
+                    changed = sorted(
+                        set(final_files) ^ set(files)
+                        | {key for key in final_files if final_files.get(key) != files.get(key)}
+                    )
+                    raise IndexBuildError(
+                        "canonical repository changed during index build: " + ", ".join(changed)
+                    )
                 self._verify_database(temporary)
                 os.replace(temporary, self.path)
             except Exception as error:
@@ -127,7 +135,6 @@ class RepositoryIndexBuilder:
             ),
             builder_version=TOOL_VERSION,
             completed=True,
-            created_at=datetime.now(UTC).isoformat(),
         )
 
     def _build_database(
@@ -159,7 +166,9 @@ class RepositoryIndexBuilder:
                     provenance_by_candidate.setdefault(item.candidate_id, []).append(item)
                 for record in records:
                     candidate = record.candidate
-                    candidate_provenance = provenance_by_candidate.get(candidate.id, [])
+                    candidate_provenance = sorted(
+                        provenance_by_candidate.get(candidate.id, []), key=lambda item: item.id
+                    )
                     review = latest.get(candidate.id)
                     reasons = evaluate_release_eligibility(
                         record,
@@ -185,7 +194,7 @@ class RepositoryIndexBuilder:
                             candidate.source_type.value,
                             int(candidate.is_license_eligible),
                             int(not reasons),
-                            json.dumps(sorted(reasons), ensure_ascii=False),
+                            json.dumps(reasons, ensure_ascii=False),
                             int(candidate.word in all_words),
                             candidate.score,
                             candidate.model_dump_json(),
@@ -227,6 +236,8 @@ class RepositoryIndexBuilder:
             ).fetchone()
             if complete != ("1",):
                 raise IndexBuildError("index completion marker is missing")
-            connection.execute("PRAGMA integrity_check").fetchone()
+            errors = sqlite_integrity_errors(connection)
+            if errors:
+                raise IndexBuildError(f"SQLite integrity check failed: {'; '.join(errors)}")
         finally:
             connection.close()

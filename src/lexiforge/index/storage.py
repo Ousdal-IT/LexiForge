@@ -2,7 +2,7 @@
 
 import hashlib
 import os
-import time
+import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -44,26 +44,66 @@ def content_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+def sqlite_integrity_errors(connection: sqlite3.Connection) -> tuple[str, ...]:
+    """Return integrity diagnostics; an empty tuple is the only valid result."""
+    rows = connection.execute("PRAGMA integrity_check").fetchall()
+    results = tuple(str(row[0]) for row in rows)
+    if results == ("ok",):
+        return ()
+    return results or ("no result",)
+
+
+def _process_exists(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _lock_owner(lock: Path) -> int | None:
+    try:
+        content = lock.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        return None
+    if not content.startswith("pid="):
+        return None
+    try:
+        return int(content.removeprefix("pid="))
+    except ValueError:
+        return None
+
+
+def _acquire_lock(lock: Path) -> int:
+    try:
+        return os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as error:
+        owner = _lock_owner(lock)
+        if owner is None or _process_exists(owner):
+            raise IndexLockError(f"index build is already in progress: {lock}") from error
+        try:
+            lock.unlink()
+            return os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except (FileExistsError, FileNotFoundError, OSError) as retry_error:
+            raise IndexLockError(f"cannot replace abandoned index lock: {lock}") from retry_error
+    except OSError as error:
+        raise IndexLockError(f"cannot create index build lock: {lock}") from error
+
+
 @contextmanager
 def build_lock(path: Path) -> Iterator[None]:
     lock = path.with_suffix(path.suffix + ".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = _acquire_lock(lock)
     try:
-        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as error:
         try:
-            if time.time() - lock.stat().st_mtime > 3600:
-                lock.unlink(missing_ok=True)
-                descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            else:
-                raise IndexLockError(f"index build is already in progress: {lock}") from error
-        except FileNotFoundError:
-            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except OSError as error:
-        raise IndexLockError(f"cannot create index build lock: {lock}") from error
-    try:
-        os.write(descriptor, f"pid={os.getpid()}\n".encode("ascii"))
-        os.close(descriptor)
+            os.write(descriptor, f"pid={os.getpid()}\n".encode("ascii"))
+        finally:
+            os.close(descriptor)
         yield
     finally:
         lock.unlink(missing_ok=True)

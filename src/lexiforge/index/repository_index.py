@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,7 @@ from .metadata import (
     repository_identity,
 )
 from .model import IndexedCandidate, IndexMetadata, IndexQueryPage, IndexStatus
-from .storage import index_path
+from .storage import index_path, sqlite_integrity_errors
 
 
 class RepositoryIndex:
@@ -48,6 +49,7 @@ class RepositoryIndex:
             if require_valid:
                 raise IndexNotFoundError(f"index does not exist: {resolved}")
             return None
+        connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(resolved)
             connection.row_factory = sqlite3.Row
@@ -70,18 +72,21 @@ class RepositoryIndex:
                 capabilities=tuple(payload["capabilities"]),
                 builder_version=str(payload["builder_version"]),
                 completed=bool(payload["completed"]),
-                created_at=payload.get("created_at"),
             )
             cls._validate_metadata(repository, metadata)
-            connection.execute("PRAGMA integrity_check").fetchone()
+            errors = sqlite_integrity_errors(connection)
+            if errors:
+                raise IndexCorruptionError(f"SQLite integrity check failed: {'; '.join(errors)}")
             return cls(repository, resolved, connection, metadata)
         except RepositoryIndexError:
-            connection.close()
+            if connection is not None:
+                connection.close()
             if require_valid:
                 raise
             return None
         except (OSError, sqlite3.Error, KeyError, TypeError, ValueError) as error:
-            connection.close()
+            if connection is not None:
+                connection.close()
             if require_valid:
                 raise IndexCorruptionError(f"invalid index {resolved}: {error}") from error
             return None
@@ -94,7 +99,10 @@ class RepositoryIndex:
         try:
             opened = cls.open(repository, resolved)
             assert opened is not None
-            return IndexStatus(str(resolved), True, True, "valid", opened.metadata)
+            try:
+                return IndexStatus(str(resolved), True, True, "valid", opened.metadata)
+            finally:
+                opened.close()
         except IndexStaleError as error:
             return IndexStatus(str(resolved), True, False, "stale", None, str(error))
         except RepositoryIndexError as error:
@@ -172,10 +180,6 @@ class RepositoryIndex:
     ) -> IndexQueryPage:
         clauses: list[str] = []
         values: list[Any] = []
-        if query:
-            clauses.append("(word LIKE ? OR normalized_word LIKE ? OR id LIKE ?)")
-            needle = f"%{query}%"
-            values.extend((needle, needle, needle))
         if language:
             clauses.append("language=?")
             values.append(language)
@@ -189,16 +193,15 @@ class RepositoryIndex:
             clauses.append("release_eligible=?")
             values.append(int(release_eligible))
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
-        total = int(
-            self._connection.execute(f"SELECT COUNT(*) FROM candidates{where}", values).fetchone()[
-                0
-            ]
-        )
         rows = self._connection.execute(
-            f"SELECT * FROM candidates{where} ORDER BY normalized_word, id LIMIT ? OFFSET ?",
-            (*values, limit, offset),
+            f"SELECT * FROM candidates{where} ORDER BY id", values
         ).fetchall()
-        return IndexQueryPage(tuple(self._row(row) for row in rows), total, offset, limit)
+        if query:
+            folded = query.casefold()
+            rows = [row for row in rows if folded in f"{row['word']} {row['id']}".casefold()]
+        total = len(rows)
+        selected = rows[offset : offset + limit]
+        return IndexQueryPage(tuple(self._row(row) for row in selected), total, offset, limit)
 
     def count_candidates(self, **filters: Any) -> int:
         return self.search_candidates(limit=1, **filters).total
@@ -216,42 +219,93 @@ class RepositoryIndex:
         ).fetchall()
         return tuple(ReviewRecord.model_validate_json(row[0]) for row in rows)
 
-    def get_dashboard_statistics(self, **_: Any) -> dict[str, Any]:
-        rows = self._connection.execute(
-            "SELECT status, COUNT(*) FROM candidates GROUP BY status ORDER BY status"
+    def get_dashboard_statistics(self) -> dict[str, Any]:
+        candidate_rows = self._connection.execute(
+            "SELECT * FROM candidates ORDER BY language, normalized_word, id"
         ).fetchall()
-        status_counts = {row[0]: row[1] for row in rows}
+        candidates = [self._row(row) for row in candidate_rows]
+        provenance_counts = Counter(
+            row[0]
+            for row in self._connection.execute(
+                "SELECT candidate_id FROM provenance ORDER BY candidate_id, id"
+            ).fetchall()
+        )
+        review_rows = self._connection.execute(
+            "SELECT candidate_id, record_json FROM reviews ORDER BY candidate_id, reviewed_at, id"
+        ).fetchall()
+        reviews_by_candidate: dict[str, list[ReviewRecord]] = {}
+        for row in review_rows:
+            reviews_by_candidate.setdefault(row[0], []).append(
+                ReviewRecord.model_validate_json(row[1])
+            )
+        statuses = Counter(item.candidate.status.value for item in candidates)
+        review_times: list[float] = []
+        for item in candidates:
+            submitted = item.candidate.submitted_at
+            if submitted is None:
+                continue
+            for review in reviews_by_candidate.get(item.candidate.id, ()):
+                review_times.append((review.reviewed_at - submitted).total_seconds())
         return {
-            "total_candidates": int(
-                self._connection.execute("SELECT COUNT(*) FROM candidates").fetchone()[0]
+            "total_candidates": len(candidates),
+            "languages": dict(
+                sorted(Counter(item.candidate.language for item in candidates).items())
             ),
-            "statuses": status_counts,
-            "release_eligible": int(
-                self._connection.execute(
-                    "SELECT COUNT(*) FROM candidates WHERE release_eligible=1"
-                ).fetchone()[0]
+            "categories": dict(
+                sorted(
+                    Counter(
+                        item.candidate.category or "uncategorized" for item in candidates
+                    ).items()
+                )
             ),
-            "release_blocked": int(
-                self._connection.execute(
-                    "SELECT COUNT(*) FROM candidates WHERE release_eligible=0"
-                ).fetchone()[0]
+            "statuses": dict(sorted(statuses.items())),
+            "approved": statuses["approved"],
+            "pending_reviews": sum(
+                item.candidate.status.value in {"submitted", "needs_review"} for item in candidates
             ),
-            "blocklist_matches": int(
-                self._connection.execute(
-                    "SELECT COUNT(*) FROM candidates WHERE blocklist_match=1"
-                ).fetchone()[0]
+            "flagged": sum(
+                bool(reviews_by_candidate.get(item.candidate.id))
+                and bool(reviews_by_candidate[item.candidate.id][-1].flags)
+                for item in candidates
             ),
-            "provenance_missing": int(
-                self._connection.execute(
-                    "SELECT COUNT(*) FROM candidates c "
-                    "WHERE NOT EXISTS (SELECT 1 FROM provenance p "
-                    "WHERE p.candidate_id=c.id)"
-                ).fetchone()[0]
+            "release_eligible": sum(item.release_eligible for item in candidates),
+            "release_blocked": sum(not item.release_eligible for item in candidates),
+            "provenance_missing": sum(
+                not provenance_counts[item.candidate.id] for item in candidates
+            ),
+            "duplicate_warnings": sum(
+                "duplicate" in reason for item in candidates for reason in item.eligibility_reasons
+            ),
+            "blocklist_matches": sum(item.blocklist_match for item in candidates),
+            "license_distribution": dict(
+                sorted(
+                    Counter(
+                        "eligible" if item.candidate.is_license_eligible else "ineligible"
+                        for item in candidates
+                    ).items()
+                )
+            ),
+            "contributors": dict(
+                sorted(
+                    Counter(item.candidate.submitted_by or "unknown" for item in candidates).items()
+                )
+            ),
+            "reviewers": dict(
+                sorted(
+                    Counter(
+                        review.reviewer_id
+                        for reviews in reviews_by_candidate.values()
+                        for review in reviews
+                    ).items()
+                )
+            ),
+            "average_review_time_seconds": (
+                sum(review_times) / len(review_times) if review_times else None
             ),
         }
 
     def find_similarity_candidates(
-        self, candidate_id: str, threshold: int = 1, limit: int = 100
+        self, candidate_id: str, limit: int = 100
     ) -> tuple[IndexedCandidate, ...]:
         candidate = self.get_candidate(candidate_id)
         if candidate is None:

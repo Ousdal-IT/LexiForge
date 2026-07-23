@@ -9,7 +9,7 @@ The default SQLite index lives outside the dataset (`~/.cache/lexiforge/index`, 
 `LEXIFORGE_INDEX_ROOT`). Use `--index-root` for read-only datasets or CI. A namespace derived from
 the resolved repository path separates multiple repositories; metadata validity is based on
 canonical file SHA-256 fingerprints, schema and profile compatibility rather than timestamps or
-Git state.
+Git state. Authoritative metadata contains no build time or other wall-clock value.
 
 ## Lifecycle
 
@@ -21,16 +21,27 @@ lexiforge index verify --data-root ../LexiForge-Data/data
 lexiforge index clear --data-root ../LexiForge-Data/data --yes
 ```
 
-Builds use a temporary SQLite file, integrity verification, a completion marker and atomic
-replacement. A failed build leaves the previous valid index intact. Refresh reports `unchanged`
-when fingerprints match and otherwise performs a safe full rebuild; this conservative fallback
-prevents stale dependent eligibility or blocklist rows. Canonical mutations remain successful if a
-later derived-index rebuild fails, and the next status check rejects the stale index.
+Builds fingerprint canonical files before reading records and again after the temporary database is
+complete. Any difference aborts the build, deletes the temporary database and preserves the
+previous index. Publication requires a completion marker and `PRAGMA integrity_check` returning
+exactly `ok`, followed by atomic replacement. Refresh reports `unchanged` when fingerprints match
+and otherwise performs a safe full rebuild; there is no incremental indexing.
 
-The workbench displays the index state but remains usable with canonical fallback. Approval-critical
-duplicate checks continue to use complete canonical semantics. Similarity candidate generation is
-an advisory prefix-bucket optimization; exact similarity scoring and moderation rules are not
-changed.
+`candidates list` is the current CLI consumer. Missing, stale, corrupt and incompatible indexes
+silently use the canonical loader unless `--require-index` is supplied. Search uses Python Unicode
+`casefold`, filters use the same exact values, and results use candidate ID as the explicit
+tie-breaker in both paths. Normalized duplicate lookup orders by candidate ID. Provenance orders by
+record ID; reviews order by review time and ID; aggregate input orders by language, normalized word
+and candidate ID. Release eligibility is calculated by the canonical evaluator during every build.
+
+The workbench only displays index state; its browsing, filtering, statistics and mutations continue
+to use the immutable canonical snapshot. Approval-critical duplicate checks remain complete and
+canonical. The indexed similarity prefix bucket is advisory and is not wired into moderation or
+the workbench exact scorer.
+
+Build locks record a local PID. A lock is removed only when its PID is demonstrably absent.
+Permission-denied process checks are treated as active ownership. Malformed locks and PID reuse are
+handled conservatively as active locks and may require manual removal; lock age is never used.
 
 The SQLite file contains structured JSON representations of domain records, not pickles or
 executable content. It may be deleted at any time and rebuilt without data loss.

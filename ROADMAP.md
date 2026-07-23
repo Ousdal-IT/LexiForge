@@ -9,6 +9,8 @@
 - **M3.2 — Editorial workbench:** the local Textual browser/editor, implemented as a thin consumer of M3.1 operations with no new mutation path.
 - **M3.3 — Editorial power tools:** dashboard, combinable filters, saved searches, batch review, similarity/duplicate assistance, comparison, blocklist operations, statistics, and session persistence.
 - **M3.4 — Workbench refinement:** prospective accessibility, large-repository profiling, richer exact replacement selection, and user-tested editorial ergonomics without changing the dataset schema.
-- **M4 — Web submission and moderation infrastructure:** only after the local curation and dataset models prove stable; prospective scope includes a submission API/UI, authentication, durable audit storage, and deployment safeguards.
+- **M4.0 — Local repository indexing:** disposable SQLite derived state, deterministic fingerprints, lifecycle commands, stale-index rejection, canonical fallback, and typed indexed reads for large local repositories.
+- **M4.x — Index refinement:** prospective measured incremental refreshes and further read-path integration without making canonical validation or mutation depend on the index.
+- **M5 — Web submission and moderation infrastructure:** deferred until the local curation and dataset contracts prove stable. Prospective work belongs in a separate web repository and may include a submission API/UI, authentication, durable audit storage, and deployment safeguards.
 
 The roadmap does not imply that development datasets are production security wordlists.

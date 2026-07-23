@@ -2,7 +2,6 @@
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 from ..models import WordCandidate
@@ -21,10 +20,9 @@ class IndexMetadata:
     capabilities: tuple[str, ...]
     builder_version: str
     completed: bool
-    created_at: str | None = None
 
-    def as_dict(self, *, include_diagnostic_time: bool = True) -> dict[str, Any]:
-        result: dict[str, Any] = {
+    def as_dict(self) -> dict[str, Any]:
+        return {
             "format_version": self.format_version,
             "compatibility_version": self.compatibility_version,
             "schema_version": self.schema_version,
@@ -37,14 +35,11 @@ class IndexMetadata:
             "builder_version": self.builder_version,
             "completed": self.completed,
         }
-        if include_diagnostic_time and self.created_at is not None:
-            result["created_at"] = self.created_at
-        return result
 
-    def to_json(self, *, include_diagnostic_time: bool = True) -> str:
+    def to_json(self) -> str:
         return (
             json.dumps(
-                self.as_dict(include_diagnostic_time=include_diagnostic_time),
+                self.as_dict(),
                 ensure_ascii=False,
                 sort_keys=True,
                 indent=2,
@@ -78,10 +73,6 @@ class IndexQueryPage:
     total: int
     offset: int
     limit: int
-
-
-def parse_datetime(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value) if value else None
 
 
 def parse_json_record(value: str, model: type[Any]) -> Any:
