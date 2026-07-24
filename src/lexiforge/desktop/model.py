@@ -6,17 +6,23 @@ performed by ``WorkbenchRepositoryView`` and only one bounded page is retained.
 
 from __future__ import annotations
 
-from typing import Any
-
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QObject,
+    QPersistentModelIndex,
+    Qt,
+)
 
 from ..workbench.query import CandidatePage
+
+_DEFAULT_INDEX = QModelIndex()
 
 
 class CandidateTableModel(QAbstractTableModel):
     headers = ("Word", "Language", "Category", "Status", "Eligible")
 
-    def __init__(self, parent: Any = None) -> None:
+    def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._page = CandidatePage((), 0, 0, 50)
 
@@ -34,13 +40,21 @@ class CandidateTableModel(QAbstractTableModel):
             return self._page.items[row].candidate.id
         return None
 
-    def rowCount(self, parent: QModelIndex | None = None) -> int:
+    def rowCount(
+        self, parent: QModelIndex | QPersistentModelIndex | None = _DEFAULT_INDEX
+    ) -> int:
         return 0 if parent is not None and parent.isValid() else len(self._page.items)
 
-    def columnCount(self, parent: QModelIndex | None = None) -> int:
+    def columnCount(
+        self, parent: QModelIndex | QPersistentModelIndex | None = _DEFAULT_INDEX
+    ) -> int:
         return 0 if parent is not None and parent.isValid() else len(self.headers)
 
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+    def data(
+        self,
+        index: QModelIndex | QPersistentModelIndex,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> object | None:
         if not index.isValid() or not (0 <= index.row() < len(self._page.items)):
             return None
         item = self._page.items[index.row()]
@@ -61,7 +75,7 @@ class CandidateTableModel(QAbstractTableModel):
 
     def headerData(
         self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole
-    ) -> Any:
+    ) -> object | None:
         if role != Qt.ItemDataRole.DisplayRole:
             return None
         if orientation == Qt.Orientation.Horizontal and 0 <= section < len(self.headers):

@@ -395,7 +395,7 @@ class DesktopMainWindow(QMainWindow):
         self.detail_request_id += 1
         self.worker_pool.waitForDone()
         self.workers.clear()
-        self.session.data["geometry"] = bytes(self.saveGeometry()).hex()
+        self.session.data["geometry"] = self.saveGeometry().data().hex()
         self.session.remember(self.repository.root)
         with suppress(OSError):
             self.session.save()
