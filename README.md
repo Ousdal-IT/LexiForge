@@ -28,6 +28,8 @@ uv run lexiforge build --language nb --size 16 --allow-development-size --balanc
 uv run lexiforge doctor
 uv run lexiforge validate-repository
 uv run lexiforge validate --data-root ../lexiforge-data/data --all
+uv run lexiforge editor --data-root ../lexiforge-data/data
+uv run lexiforge desktop --data-root ../lexiforge-data/data
 ```
 
 The CLI exits with 0 on success, 1 for validation/build failures, and 2 for invalid CLI usage or configuration detected by argument parsing. Expected errors are printed without tracebacks.
@@ -46,7 +48,31 @@ Every data-aware command resolves its dataset-interface root in this order: an e
 
 ## Editorial service
 
-`lexiforge.editorial` is the UI-independent mutation boundary for future editors. It creates immutable validated `ChangeSet` previews, detects stale repository state, validates proposed content in an isolated repository copy, and applies text files atomically with rollback. M3.0 intentionally adds no new user-facing editing command; see `docs/editorial-service.md` for the lifecycle and operation protocol.
+`lexiforge.editorial` is the UI-independent mutation boundary for every editor. It creates immutable validated `ChangeSet` previews, detects stale repository state, validates proposed content in an isolated repository copy, and applies text files atomically with rollback. M3.1 adds dry-run-first `candidates`, `provenance`, and `review` workflows without moving business rules into the CLI; see `docs/editorial-cli.md` and `docs/editorial-service.md`.
+
+M3.2 adds the preferred full-screen Textual workbench through `lexiforge editor`. It browses and filters a cached read snapshot, renders the existing deterministic previews, and applies only validated service change sets. See `docs/editorial-workbench.md` for workflows and keyboard shortcuts.
+
+M3.3 adds the editorial dashboard, combinable power filters, saved searches, batch review, statistics, similarity and duplicate tools, comparison, blocklist operations, import-review mode, and external session persistence. See `docs/editorial-power-tools.md` for the power-user guide.
+
+Repository statistics are also available without opening the workbench: `uv run lexiforge stats --format json` (or `--format csv`).
+
+M4.0 adds an optional disposable repository index for selected local reads. Canonical files remain
+authoritative, and a missing, stale, incompatible or corrupt index falls back to identical
+canonical `candidates list` results. The workbench currently reports index status but continues to
+use its canonical immutable snapshot. Build the index outside canonical data with
+`uv run lexiforge index build --data-root ../LexiForge-Data/data`; see
+`docs/repository-index.md` and `docs/performance.md`.
+
+v0.7.0 integrates that index into the Textual workbench through a backend-neutral query layer.
+Valid indexes provide bounded candidate pages, indexed filtering/search/statistics and lazy detail
+history; missing or invalid indexes use the complete canonical fallback. Mutations still go through
+`EditorialService`, immediately invalidate indexed reads, and may trigger a safe background full
+rebuild. See `docs/workbench-index-integration.md`.
+
+v0.8.0 adds an optional native PySide6 desktop browser over the same bounded, backend-neutral
+query layer. Install it with `uv sync --extra desktop` and launch `lexiforge desktop`; use
+`--canonical` to disable indexed reads. The desktop session is stored outside the dataset and
+contains presentation state only. See `docs/desktop-workbench.md`.
 
 ## Development
 

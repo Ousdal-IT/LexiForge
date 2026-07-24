@@ -34,6 +34,19 @@ def changeset_as_dict(changeset: ChangeSet) -> dict[str, Any]:
             }
             for item in changeset.release_eligibility_impact
         ],
+        "field_changes": [
+            {"field": item.field, "before": item.before, "after": item.after}
+            for item in changeset.field_changes
+        ],
+        "status_transitions": [
+            {
+                "candidate_id": item.candidate_id,
+                "before": item.before,
+                "after": item.after,
+            }
+            for item in changeset.status_transitions
+        ],
+        "details": dict(changeset.details),
     }
 
 
@@ -60,4 +73,18 @@ def render_text(changeset: ChangeSet) -> str:
     if changeset.warnings:
         lines.append("Warnings:")
         lines.extend(f"- {warning}" for warning in changeset.warnings)
+    if changeset.field_changes:
+        lines.append("Field changes:")
+        lines.extend(
+            f"- {item.field}: {item.before!r} -> {item.after!r}" for item in changeset.field_changes
+        )
+    if changeset.status_transitions:
+        lines.append("Status transitions:")
+        lines.extend(
+            f"- {item.candidate_id}: {item.before} -> {item.after}"
+            for item in changeset.status_transitions
+        )
+    if changeset.details:
+        lines.append("Details:")
+        lines.extend(f"- {key}: {value}" for key, value in changeset.details)
     return "\n".join(lines) + "\n"

@@ -18,4 +18,21 @@ Despite its class name, this boundary represents a versioned dataset interface, 
 
 M3.0 adds an editorial service above the dataset and validator layers. Operations propose structured full-file changes; the service validates an isolated shadow repository and emits an immutable changeset. Rendering is separate. Apply verifies source hashes, revalidates, atomically replaces files, and rolls back partial replacement failures. Future CLI and editor layers must depend on this service rather than CSV serialization details.
 
+M3.1 supplies immutable operation planners for candidate creation/editing/withdrawal/supersession, provenance addition, and append-only review transitions. CLI commands only collect typed input and render service results. Audit times and identities are explicit, candidate IDs survive edits, normalization and transitions remain centralized, and an applied operation always receives final repository validation.
+
+M3.2 adds a Textual presentation layer. It loads one immutable, read-optimized candidate snapshot per explicit repository reload, while every proposed mutation remains an M3.1 operation passed to `EditorialService`. The preview pane calls the shared renderer verbatim; apply uses the pending validated `ChangeSet`. Textual widgets contain no serializers, normalization rules, moderation rules, or eligibility decisions.
+
+M3.3 adds power-tool read models and service operations without changing that boundary. Statistics,
+filters, saved searches, similarity, comparison, and session state are presentation-side data. Batch
+review and blocklist edits produce one service `ChangeSet`; they do not write canonical CSV directly.
+
 Language behavior is configuration-driven; adding a compatible profile does not change validator logic. M0 deliberately has no persistence service, web framework, accounts, external API, plugin architecture, or semantic classifier.
+
+M4.0 adds an optional disposable SQLite index for read-heavy workflows. Canonical files remain
+authoritative; fingerprints, schema and profile compatibility are checked before every indexed
+query. Missing or stale indexes fall back to canonical loaders, and no mutation or validation rule
+depends on the index.
+
+Web submission and moderation infrastructure is deferred to v0.9.0 and a separate repository. It
+must consume the versioned dataset and editorial contracts rather than introducing web concerns
+into this local tooling package.
