@@ -10,45 +10,122 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
+
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
+
+    env:
+      QT_QPA_PLATFORM: offscreen
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uv sync --frozen --all-extras --dev
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run mypy src
-      - run: uv run pytest
-      - run: ./scripts/check-repository-hygiene.sh
-      - run: git diff --check
-      - run: uv run lexiforge validate --all
-      - run: uv run lexiforge doctor
-      - run: uv run lexiforge validate-repository
-      - run: uv run lexiforge curate report --all --format json --output-dir build/reports
-      - run: uv run lexiforge optimise --all
-      - run: uv run lexiforge compare nb nn
-      - run: uv run lexiforge release plan
+
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libegl1 \
+            libgl1 \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras --dev
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy src
+
+      - name: pytest
+        run: uv run pytest
+
+      - name: Repository hygiene
+        run: ./scripts/check-repository-hygiene.sh
+
+      - name: Check whitespace errors
+        run: git diff --check
+
+      - name: Validate all languages
+        run: uv run lexiforge validate --all
+
+      - name: Run doctor
+        run: uv run lexiforge doctor
+
+      - name: Validate repository
+        run: uv run lexiforge validate-repository
+
+      - name: Generate curation reports
+        run: |
+          uv run lexiforge curate report \
+            --all \
+            --format json \
+            --output-dir build/reports
+
+      - name: Optimise all languages
+        run: uv run lexiforge optimise --all
+
+      - name: Compare Norwegian profiles
+        run: uv run lexiforge compare nb nn
+
+      - name: Verify release plan
+        run: uv run lexiforge release plan
+
       - name: Deterministic static reports
         run: |
           uv run lexiforge report publish --output-dir build/site-first
           uv run lexiforge report publish --output-dir build/site-second
           diff -ru build/site-first build/site-second
+
       - name: Deterministic language builds
         run: |
           for language in nb nn en; do
-            uv run lexiforge build --language "$language" --size 16 --allow-development-size --balanced --output-dir "build/first/$language"
-            uv run lexiforge build --language "$language" --size 16 --allow-development-size --balanced --output-dir "build/second/$language"
-            diff -ru "build/first/$language" "build/second/$language"
+            uv run lexiforge build \
+              --language "$language" \
+              --size 16 \
+              --allow-development-size \
+              --balanced \
+              --output-dir "build/first/$language"
+
+            uv run lexiforge build \
+              --language "$language" \
+              --size 16 \
+              --allow-development-size \
+              --balanced \
+              --output-dir "build/second/$language"
+
+            diff -ru \
+              "build/first/$language" \
+              "build/second/$language"
           done
+
       - name: External repository parity
         run: |
           cp -a data build/external-data
-          uv run lexiforge validate --data-root build/external-data --all
-          uv run lexiforge build --data-root build/external-data --language nb --size 16 --allow-development-size --balanced --output-dir build/external-nb
+
+          uv run lexiforge validate \
+            --data-root build/external-data \
+            --all
+
+          uv run lexiforge build \
+            --data-root build/external-data \
+            --language nb \
+            --size 16 \
+            --allow-development-size \
+            --balanced \
+            --output-dir build/external-nb
+
           diff -ru build/first/nb build/external-nb
