@@ -54,7 +54,12 @@ class RepositoryIndex:
 
     @classmethod
     def open(
-        cls, repository: DatasetRepository, path: Path | None = None, *, require_valid: bool = True
+        cls,
+        repository: DatasetRepository,
+        path: Path | None = None,
+        *,
+        require_valid: bool = True,
+        cross_thread: bool = False,
     ) -> "RepositoryIndex | None":
         resolved = path or index_path(repository.root)
         if not resolved.is_file():
@@ -63,7 +68,7 @@ class RepositoryIndex:
             return None
         connection: sqlite3.Connection | None = None
         try:
-            connection = sqlite3.connect(resolved)
+            connection = sqlite3.connect(resolved, check_same_thread=not cross_thread)
             connection.row_factory = sqlite3.Row
             row = connection.execute("SELECT value FROM metadata WHERE key='metadata'").fetchone()
             complete = connection.execute(

@@ -347,12 +347,15 @@ def _similarity_findings(
 
 
 def open_workbench_view(
-    repository: DatasetRepository, index_root: Path | None = None
+    repository: DatasetRepository,
+    index_root: Path | None = None,
+    *,
+    cross_thread: bool = False,
 ) -> WorkbenchRepositoryView:
     """Select a verified index, otherwise materialize the canonical fallback."""
     path = index_path(repository.root, index_root)
     try:
-        index = RepositoryIndex.open(repository, path)
+        index = RepositoryIndex.open(repository, path, cross_thread=cross_thread)
     except RepositoryIndexError as error:
         status = RepositoryIndex.status(repository, path)
         return CanonicalWorkbenchView(

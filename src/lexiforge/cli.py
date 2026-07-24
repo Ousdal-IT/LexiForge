@@ -241,6 +241,22 @@ def editor_command(
     EditorialWorkbench(_repository(data_root)).run()
 
 
+@app.command("desktop")
+def desktop_command(
+    data_root: Annotated[Path | None, typer.Option("--data-root")] = None,
+    canonical: Annotated[bool, typer.Option("--canonical")] = False,
+    reset_session: Annotated[bool, typer.Option("--reset-session")] = False,
+) -> None:
+    """Launch the optional native PySide6 desktop workbench."""
+    try:
+        from .desktop.app import run
+
+        run(_repository(data_root), canonical_only=canonical, reset_session=reset_session)
+    except RuntimeError as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(2) from None
+
+
 @app.command("stats")
 def stats_command(
     output_format: Annotated[str, typer.Option("--format")] = "json",

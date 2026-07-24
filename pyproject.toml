@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lexiforge"
-version = "0.7.0"
+version = "0.8.0"
 description = "An open platform for building, curating, validating, and publishing high-quality multilingual passphrase wordlists."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -14,6 +14,11 @@ dependencies = [
     "pyyaml>=6.0,<7",
     "textual>=8.2,<9",
     "typer>=0.15,<1",
+]
+
+[project.optional-dependencies]
+desktop = [
+    "PySide6>=6.8,<7",
 ]
 
 [project.scripts]
@@ -35,6 +40,19 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["PySide6", "PySide6.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "lexiforge.desktop.app",
+    "lexiforge.desktop.main_window",
+    "lexiforge.desktop.model",
+    "lexiforge.desktop.workers",
+]
+disable_error_code = ["misc", "no-any-return", "untyped-decorator"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

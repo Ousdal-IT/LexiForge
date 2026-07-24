@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0 - Unreleased
+
+- Add the optional PySide6 desktop browser with bounded backend-neutral search, filters,
+  pagination, lazy candidate details, canonical fallback, and verified index-backed reads.
+- Keep desktop session state outside the dataset and protect asynchronous page and detail results
+  across newer requests, repository switches, and shutdown.
+
 ## 0.7.0 - Unreleased
 
 - Establish the multilingual M0 package, CLI, validation, analysis, deterministic exports, manifests, documentation, tests, and CI.

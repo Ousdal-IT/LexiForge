@@ -29,6 +29,7 @@ uv run lexiforge doctor
 uv run lexiforge validate-repository
 uv run lexiforge validate --data-root ../lexiforge-data/data --all
 uv run lexiforge editor --data-root ../lexiforge-data/data
+uv run lexiforge desktop --data-root ../lexiforge-data/data
 ```
 
 The CLI exits with 0 on success, 1 for validation/build failures, and 2 for invalid CLI usage or configuration detected by argument parsing. Expected errors are printed without tracebacks.
@@ -67,6 +68,11 @@ Valid indexes provide bounded candidate pages, indexed filtering/search/statisti
 history; missing or invalid indexes use the complete canonical fallback. Mutations still go through
 `EditorialService`, immediately invalidate indexed reads, and may trigger a safe background full
 rebuild. See `docs/workbench-index-integration.md`.
+
+v0.8.0 adds an optional native PySide6 desktop browser over the same bounded, backend-neutral
+query layer. Install it with `uv sync --extra desktop` and launch `lexiforge desktop`; use
+`--canonical` to disable indexed reads. The desktop session is stored outside the dataset and
+contains presentation state only. See `docs/desktop-workbench.md`.
 
 ## Development
 
