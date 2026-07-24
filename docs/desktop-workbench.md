@@ -23,3 +23,8 @@ valid disposable index or canonical fallback.
 Desktop session data contains window geometry and up to ten recent repository paths. It is stored
 at `~/.config/lexiforge/desktop.json`, outside the dataset, and is written by atomic replacement.
 No network behavior, telemetry, or dataset mutation is introduced.
+
+The base type-check job intentionally does not require PySide6. Desktop modules therefore have a
+small mypy exception for Qt's optional, untyped boundary. A release CI follow-up should add a
+separate `desktop` type-check job that installs the optional extra and validates the Qt modules
+with the available PySide6 typing metadata.

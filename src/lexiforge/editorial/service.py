@@ -219,6 +219,10 @@ class EditorialService:
             return
         if changeset.validation_status != "valid":
             raise MutationRejectedError("only validated changesets can be applied")
+        if not self.repository.writable:
+            raise RepositoryStateError(
+                "repository is read-only; provide a writable external --data-root to apply changes"
+            )
         self._verify_current_state(changeset.files)
         with self._staged_repository(changeset.files) as staged:
             self._validate_repository(staged)

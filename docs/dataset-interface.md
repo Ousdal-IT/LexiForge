@@ -2,6 +2,11 @@
 
 The dataset interface is the only filesystem contract between LexiForge tooling and data producers. It is independent of Git and repository topology.
 
+In a source checkout or editable installation, the development dataset is the repository-level
+`data/` directory. In a regular wheel, the same files are packaged as the adjacent `data/`
+directory and are selected only when no explicit option or environment root is supplied. External
+roots remain the recommended location for writable or official datasets.
+
 ## Root contract
 
 A data-root directory contains:

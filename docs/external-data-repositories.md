@@ -12,6 +12,11 @@ Resolution order is:
 2. `LEXIFORGE_DATA_ROOT`
 3. Bundled development `data/`
 
+The bundled development dataset is included in source checkouts, editable installs, and regular
+LexiForge wheels. A regular wheel places it beside the installed package as `data/`; it is a
+read-only example dataset and is not an official production release. Normal mutation commands
+should target an explicitly supplied writable external repository such as `LexiForge-Data`.
+
 An explicit or environment root that is absent, malformed, or incompatible fails clearly. LexiForge never falls back to bundled data after a higher-priority root was selected.
 
 ```bash

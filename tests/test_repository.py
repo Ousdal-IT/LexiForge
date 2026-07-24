@@ -33,6 +33,7 @@ def test_bundled_repository_manifest_and_layout() -> None:
     assert set(manifest.supported_languages) == {"nb", "nn", "en"}
     assert repository.validate_layout() == []
     assert repository.source == "bundled"
+    assert not repository.writable
 
 
 def test_external_repository(tmp_path: Path) -> None:

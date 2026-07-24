@@ -4,8 +4,12 @@ PROJECT_NAME = "LexiForge"
 WORDLIST_VERSION = "0.0.0-dev"
 DATA_LICENSE = "CC0-1.0"
 MANIFEST_SCHEMA_VERSION = 1
-PACKAGE_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA_ROOT = PACKAGE_ROOT / "data"
+PACKAGE_ROOT = Path(__file__).resolve().parent
+_DATA_LOCATIONS = (PACKAGE_ROOT.parent / "data", PACKAGE_ROOT.parents[1] / "data")
+DEFAULT_DATA_ROOT = next(
+    (location for location in _DATA_LOCATIONS if location.is_dir()),
+    _DATA_LOCATIONS[0],
+)
 CSV_COLUMNS = (
     "id",
     "language",

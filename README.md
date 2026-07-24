@@ -8,6 +8,22 @@ M1 supports Norwegian Bokmål (`nb`), Norwegian Nynorsk (`nn`), and English (`en
 
 Python 3.12 or newer and [uv](https://docs.astral.sh/uv/) are required.
 
+For a regular installation, install the core package or the optional desktop extra:
+
+```bash
+uv pip install lexiforge==0.8.0
+uv pip install 'lexiforge[desktop]==0.8.0'
+```
+
+The wheel includes a small read-only development/example dataset. Use an explicit writable
+external dataset for editorial mutations, or select one through the environment:
+
+```bash
+uv run lexiforge doctor --data-root ../LexiForge-Data/data
+export LEXIFORGE_DATA_ROOT=../LexiForge-Data/data
+uv run lexiforge validate --all
+```
+
 ```bash
 uv sync --frozen --all-extras --dev
 uv run lexiforge languages
@@ -44,7 +60,7 @@ M2 dataset engineering adds n-gram and distribution statistics, advisory optimis
 
 ## External dataset repositories
 
-Every data-aware command resolves its dataset-interface root in this order: an explicit `--data-root`, `LEXIFORGE_DATA_ROOT`, then bundled development data. A supplied root must contain a compatible `manifest.yaml`; invalid external data is rejected without silently falling back. No Git checkout name, remote, or sibling layout is assumed. Run `lexiforge doctor` to see the resolved root and `lexiforge validate-repository` before builds. See `docs/dataset-interface.md` and `docs/external-data-repositories.md` for the file contract and migration policy.
+Every data-aware command resolves its dataset-interface root in this order: an explicit `--data-root`, `LEXIFORGE_DATA_ROOT`, then bundled development data. The development data is available in source/editable checkouts and is packaged in regular wheels as a read-only example dataset. A supplied root must contain a compatible `manifest.yaml`; invalid external data is rejected without silently falling back. No Git checkout name, remote, or sibling layout is assumed. Run `lexiforge doctor` to see the resolved root and `lexiforge validate-repository` before builds. Use an explicit writable external root for mutations or official data. See `docs/dataset-interface.md` and `docs/external-data-repositories.md` for the file contract and migration policy.
 
 ## Editorial service
 

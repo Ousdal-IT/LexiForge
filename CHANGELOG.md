@@ -1,7 +1,12 @@
 # Changelog
 
-## 0.8.0 - Unreleased
+## 0.8.0 - 2026-07-24
 
+- Package the complete bundled development dataset in regular wheels and document its read-only
+  status alongside explicit external dataset workflows.
+- Clarify that bundled data is development/example material, while writable editorial workflows
+  and official production datasets use an explicit external `--data-root` or
+  `LEXIFORGE_DATA_ROOT` repository.
 - Add the optional PySide6 desktop browser with bounded backend-neutral search, filters,
   pagination, lazy candidate details, canonical fallback, and verified index-backed reads.
 - Keep desktop session state outside the dataset and protect asynchronous page and detail results

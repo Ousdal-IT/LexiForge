@@ -22,13 +22,16 @@ desktop = [
 ]
 
 [project.scripts]
-lexiforge = "lexiforge.cli:app"
+lexiforge = "lexiforge.cli:main"
 
 [dependency-groups]
 dev = ["mypy>=1.14", "pytest>=8.3", "ruff>=0.9", "types-pyyaml>=6.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lexiforge"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"data" = "data"
 
 [tool.ruff]
 target-version = "py312"
@@ -57,3 +60,6 @@ disable_error_code = ["misc", "no-any-return", "untyped-decorator"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+    "release: build and install a real wheel in an isolated environment",
+]

@@ -56,6 +56,8 @@ class DatasetRepository:
 
     @property
     def writable(self) -> bool:
+        if self.source == "bundled":
+            return False
         return os.access(self.root, os.W_OK)
 
     def load_manifest(self) -> DatasetManifest:
