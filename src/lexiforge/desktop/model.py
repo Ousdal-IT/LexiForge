@@ -40,9 +40,7 @@ class CandidateTableModel(QAbstractTableModel):
             return self._page.items[row].candidate.id
         return None
 
-    def rowCount(
-        self, parent: QModelIndex | QPersistentModelIndex | None = _DEFAULT_INDEX
-    ) -> int:
+    def rowCount(self, parent: QModelIndex | QPersistentModelIndex | None = _DEFAULT_INDEX) -> int:
         return 0 if parent is not None and parent.isValid() else len(self._page.items)
 
     def columnCount(
